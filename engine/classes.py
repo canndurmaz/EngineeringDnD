@@ -57,16 +57,48 @@ class Catalog:
         return [a for a in self.abilities_for(class_id) if a.unlock_phase <= phase_index]
 
 
+def _require(raw: dict, key: str, where: str):
+    """Get a required field from a dict, raising CatalogError if missing."""
+    if key not in raw:
+        raise CatalogError(f"{where}: missing required field {key!r}")
+    return raw[key]
+
+
+def _require_int(value, key: str, where: str) -> int:
+    """Convert a value to int, raising CatalogError on failure."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        raise CatalogError(f"{where}: {key!r} must be numeric, got {value!r}")
+
+
 def _build_ability(raw: dict) -> Ability:
+    where = f"ability {raw.get('id', '<no id>')!r}"
+    ability_id = _require(raw, "id", where)
+    where = f"ability {ability_id!r}"  # Update where for better error messages
+
+    focus_cost = _require_int(_require(raw, "focus_cost", where), "focus_cost", where)
+    dc_mod = _require_int(_require(raw, "dc_mod", where), "dc_mod", where)
+    unlock_phase = _require_int(_require(raw, "unlock_phase", where), "unlock_phase", where)
+
     return Ability(
-        id=raw["id"], name=raw["name"], class_id=raw["class"],
-        focus_cost=int(raw["focus_cost"]), stat=raw["stat"],
-        dc_mod=int(raw["dc_mod"]), unlock_phase=int(raw["unlock_phase"]),
-        target=raw["target"], on_success=tuple(raw["on_success"]),
-        on_fail=tuple(raw["on_fail"]), flavor=raw["flavor"],
-        fixed_roll=raw.get("fixed_roll"), no_crit=bool(raw.get("no_crit", False)),
-        no_fumble=bool(raw.get("no_fumble", False)), stat_alt=raw.get("stat_alt"),
-        once_per=raw.get("once_per"), extra_cost=raw.get("extra_cost", {}),
+        id=ability_id,
+        name=_require(raw, "name", where),
+        class_id=_require(raw, "class", where),
+        focus_cost=focus_cost,
+        stat=_require(raw, "stat", where),
+        dc_mod=dc_mod,
+        unlock_phase=unlock_phase,
+        target=_require(raw, "target", where),
+        on_success=tuple(_require(raw, "on_success", where)),
+        on_fail=tuple(_require(raw, "on_fail", where)),
+        flavor=_require(raw, "flavor", where),
+        fixed_roll=raw.get("fixed_roll"),
+        no_crit=bool(raw.get("no_crit", False)),
+        no_fumble=bool(raw.get("no_fumble", False)),
+        stat_alt=raw.get("stat_alt"),
+        once_per=raw.get("once_per"),
+        extra_cost=raw.get("extra_cost", {}),
     )
 
 
@@ -77,14 +109,22 @@ def load_catalog(data_dir: str = "data") -> Catalog:
 
     classes = {}
     for cid, c in classes_raw.items():
-        for key in ("primary", "secondary"):
-            if c[key] not in STATS:
-                raise CatalogError(f"class {cid}: unknown stat {c[key]!r}")
-        if c["primary"] == c["secondary"]:
-            raise CatalogError(f"class {cid}: primary and secondary stat are identical")
-        classes[cid] = CharacterClass(id=cid, name=c["name"], primary=c["primary"],
-                                      secondary=c["secondary"], role=c["role"],
-                                      blurb=c["blurb"])
+        where = f"class {cid!r}"
+        name = _require(c, "name", where)
+        primary = _require(c, "primary", where)
+        secondary = _require(c, "secondary", where)
+        role = _require(c, "role", where)
+        blurb = _require(c, "blurb", where)
+
+        if primary not in STATS:
+            raise CatalogError(f"{where}: unknown stat {primary!r}")
+        if secondary not in STATS:
+            raise CatalogError(f"{where}: unknown stat {secondary!r}")
+        if primary == secondary:
+            raise CatalogError(f"{where}: primary and secondary stat are identical")
+        classes[cid] = CharacterClass(id=cid, name=name, primary=primary,
+                                      secondary=secondary, role=role,
+                                      blurb=blurb)
 
     abilities = {}
     for raw in abilities_raw:

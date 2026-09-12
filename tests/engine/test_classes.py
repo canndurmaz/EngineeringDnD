@@ -76,3 +76,36 @@ def test_rejects_duplicate_ability_ids(tmp_path):
     (tmp_path / "abilities.json").write_text(json.dumps([one, one]))
     with pytest.raises(CatalogError, match="duplicate"):
         load_catalog(str(tmp_path))
+
+
+def test_rejects_ability_missing_required_field(tmp_path):
+    (tmp_path / "classes.json").write_text(json.dumps({
+        "x": {"name": "X", "primary": "RIGOR", "secondary": "GRIT",
+              "role": "r", "blurb": "b"}}))
+    (tmp_path / "abilities.json").write_text(json.dumps([{
+        "id": "a", "name": "A", "class": "x", "focus_cost": 0,
+        "dc_mod": 0, "unlock_phase": 0, "target": "hazard",
+        "on_success": [], "on_fail": [], "flavor": "f"}]))
+    with pytest.raises(CatalogError, match="stat"):
+        load_catalog(str(tmp_path))
+
+
+def test_rejects_class_missing_required_field(tmp_path):
+    (tmp_path / "classes.json").write_text(json.dumps({
+        "x": {"name": "X", "secondary": "GRIT",
+              "role": "r", "blurb": "b"}}))
+    (tmp_path / "abilities.json").write_text(json.dumps([]))
+    with pytest.raises(CatalogError, match="primary"):
+        load_catalog(str(tmp_path))
+
+
+def test_rejects_ability_with_non_numeric_focus_cost(tmp_path):
+    (tmp_path / "classes.json").write_text(json.dumps({
+        "x": {"name": "X", "primary": "RIGOR", "secondary": "GRIT",
+              "role": "r", "blurb": "b"}}))
+    (tmp_path / "abilities.json").write_text(json.dumps([{
+        "id": "a", "name": "A", "class": "x", "focus_cost": "three", "stat": "RIGOR",
+        "dc_mod": 0, "unlock_phase": 0, "target": "hazard",
+        "on_success": [], "on_fail": [], "flavor": "f"}]))
+    with pytest.raises(CatalogError, match="focus_cost"):
+        load_catalog(str(tmp_path))
