@@ -62,6 +62,19 @@ def create_app(config: "dict | None" = None) -> Flask:
                               broker=app.broker)
     app.archetypes = load_archetypes(data_dir)
 
+    from narrator.fallback import TemplateNarrator
+    from narrator.queue_ import NarrationQueue
+    from narrator.worker import NarrationWorker
+
+    app.narration_queue = app.config.get("NARRATION")
+    if app.narration_queue is None and not app.config.get("TESTING"):
+        app.narration_queue = NarrationQueue()
+        app.narrator = TemplateNarrator()        # Task 16 swaps in the real model
+        app.worker = NarrationWorker(app.narration_queue, app.narrator,
+                                     app.service, app.broker)
+        app.worker.start()
+    app.service.queue = app.narration_queue
+
     # --- error contract ----------------------------------------------------
 
     @app.errorhandler(ServiceError)
