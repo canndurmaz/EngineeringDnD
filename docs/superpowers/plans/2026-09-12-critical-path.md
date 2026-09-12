@@ -4533,18 +4533,21 @@ def test_focus_is_visibly_spent_after_acting(table):
     assert after == before - 1
 
 
-def test_insufficient_focus_is_a_readable_400(table):
-    room_id, ada, ben = table
-    for _ in range(12):
-        state = ada.get(f"/api/rooms/{room_id}/state").get_json()
-        if state["turn"]["active_player_id"] == state["you"]["player_id"]:
-            response = ada.post(f"/api/rooms/{room_id}/action",
-                                json={"ability_id": "refactor"})
-            if response.status_code == 400 and "Focus" in response.get_json()["error"]:
-                return
-        else:
-            ben.post(f"/api/rooms/{room_id}/end-turn")
-    pytest.fail("never exhausted Focus")
+def test_insufficient_focus_is_a_readable_400(app, table):
+    room_id, ada, _ = table
+    # Drain the active character's Focus directly. Looping real turns cannot exhaust it:
+    # every phase-0 starter either regenerates as fast as it costs (unit_test_barrage, 1
+    # Focus against +1/turn) or is once-per-hazard (binary_search_debug).
+    room = app.service._room(room_id)
+    state = room.load_state()
+    active = state["turn"]["order"][state["turn"]["turn_index"]]
+    state["characters"][active]["focus"] = 0
+    room.save_state(state)
+
+    response = ada.post(f"/api/rooms/{room_id}/action",
+                        json={"ability_id": "binary_search_debug"})
+    assert response.status_code == 400
+    assert "Focus" in response.get_json()["error"]
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -4623,6 +4626,9 @@ arriving in Task 14. That is the milestone worth stopping to play.
 # tests/api/test_stream.py
 import json
 import queue
+
+import pytest
+
 from broker import EventBroker
 from tests.api.conftest import make_room
 
@@ -4710,8 +4716,6 @@ def test_replayed_frames_carry_ids_and_json_payloads(client):
 def test_stream_for_an_unknown_room_is_a_400(client):
     assert client.get("/api/rooms/zzzzzz/stream?once=1").status_code == 400
 ```
-
-Add `import pytest` at the top of the file — `test_broker_does_not_cross_rooms` uses it.
 
 - [ ] **Step 2: Run to verify they fail**
 
