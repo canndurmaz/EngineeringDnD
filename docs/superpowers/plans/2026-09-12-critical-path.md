@@ -2724,6 +2724,12 @@ def room(tmp_path):
     db.close()
 
 
+def seat(room, state):
+    """Characters FK to players, so a forged state needs its players seated first."""
+    for player_id, char in state["characters"].items():
+        room.add_player(player_id, char["name"], f"tok-{player_id}", char["class_id"])
+
+
 def test_create_makes_the_file(tmp_path, room):
     assert (tmp_path / "abc123" / "game.db").exists()
 
@@ -2763,6 +2769,7 @@ def test_state_round_trips_unchanged(room):
     original["room"].update({"id": "abc123", "name": "Kestrel",
                              "archetype": "aircraft", "rng_seed": 4242,
                              "premise": "A trainer aircraft."})
+    seat(room, original)
     room.save_state(original)
     assert room.load_state() == original
 
@@ -2772,6 +2779,7 @@ def test_state_survives_closing_and_reopening(tmp_path, room):
     s["room"].update({"id": "abc123", "name": "Kestrel", "archetype": "aircraft",
                       "rng_seed": 4242, "premise": "p"})
     s["party"]["tech_debt"] = 17
+    seat(room, s)
     room.save_state(s)
     room.close()
     reopened = RoomDB.open(str(tmp_path), "abc123")
@@ -2783,6 +2791,7 @@ def test_save_state_replaces_rather_than_duplicating_hazards(room):
     s = make_state()
     s["room"].update({"id": "abc123", "name": "K", "archetype": "aircraft",
                       "rng_seed": 1, "premise": "p"})
+    seat(room, s)
     room.save_state(s)
     room.save_state(s)
     assert len(room.load_state()["hazards"]) == len(s["hazards"])
