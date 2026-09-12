@@ -2018,7 +2018,7 @@ def advance_turn(state) -> bool:
 - [ ] **Step 4: Run to verify they pass**
 
 Run: `pytest tests/engine/test_rules.py -v`
-Expected: PASS — 33 tests.
+Expected: PASS — 34 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -3227,7 +3227,7 @@ class RoomDB:
 - [ ] **Step 5: Run to verify they pass**
 
 Run: `pytest tests/storage/test_room_db.py -v`
-Expected: PASS — 20 tests.
+Expected: PASS — 21 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -3897,7 +3897,12 @@ class GameService:
                                             {"result": ending}))
 
     def _require_running(self, state: dict) -> None:
-        if state["room"]["status"] not in ("active", "lobby"):
+        status = state["room"]["status"]
+        if status == "lobby":
+            # Without this, the first player to join could solo the opening hazard
+            # while everyone else is still choosing a class.
+            raise ServiceError("the programme has not started yet")
+        if status != "active":
             raise ServiceError("this game is over")
 
     def act(self, room_id: str, player_id: str, ability_id: str,
