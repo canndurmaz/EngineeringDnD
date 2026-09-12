@@ -7317,27 +7317,34 @@ def table(tmp_path):
     return svc, room_id, a["player_id"], b["player_id"]
 
 
-def test_simultaneous_actions_produce_exactly_one_success(table):
-    svc, room_id, ada, ben = table
+def test_simultaneous_actions_from_one_player_resolve_exactly_once(table):
+    """Eight threads race as the SAME player; the lock must let exactly one through.
+
+    All eight act as Ada deliberately. Mixing in Ben's threads would not test the
+    lock: this is a turn-based game, so Ada's success legitimately hands the turn
+    to Ben, whose thread then also succeeds - and how many alternations land before
+    the threads drain is pure scheduling luck (observed 2 and 4 across runs).
+    Racing one player is the deterministic form of the question.
+    """
+    svc, room_id, ada, _ = table
     results, errors = [], []
     barrier = threading.Barrier(8)
 
-    def attempt(player_id, ability_id):
+    def attempt():
         barrier.wait()
         try:
-            results.append(svc.act(room_id, player_id, ability_id))
+            results.append(svc.act(room_id, ada, "unit_test_barrage"))
         except (RuleError, ServiceError) as exc:
             errors.append(str(exc))
 
-    threads = [threading.Thread(target=attempt, args=(ada, "unit_test_barrage"))
-               for _ in range(4)]
-    threads += [threading.Thread(target=attempt, args=(ben, "shop_floor_fix"))
-                for _ in range(4)]
+    threads = [threading.Thread(target=attempt) for _ in range(8)]
     for t in threads: t.start()
     for t in threads: t.join(timeout=10)
 
-    assert len(results) == 1, f"{len(results)} actions resolved; expected 1"
+    assert len(results) == 1, f"{len(results)} actions resolved; expected exactly 1"
     assert len(errors) == 7
+    # The seven losers must be rejected by the turn gate, not by a crash.
+    assert all("turn" in e.lower() for e in errors), errors
 
 
 def test_focus_is_never_double_spent(table):
@@ -7385,7 +7392,13 @@ def test_two_rooms_do_not_block_each_other(tmp_path):
 
     def play(room_id, player_id):
         for _ in range(3):
-            svc.end_turn(room_id, player_id)
+            try:
+                svc.end_turn(room_id, player_id)
+            except ServiceError:
+                # A solo party can burn out inside three rounds: the hazard attacks
+                # after every full round, and with one player every turn IS a round.
+                # Game-over is a legitimate outcome here, not a locking failure.
+                break
         done.append(room_id)
 
     threads = [threading.Thread(target=play, args=pair) for pair in rooms]
