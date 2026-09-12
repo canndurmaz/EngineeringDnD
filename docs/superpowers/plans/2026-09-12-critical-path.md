@@ -5106,8 +5106,6 @@ def clean(text: str, allowed_numbers: set, max_sentences: int = 4) -> str:
 """Template narrator. The game is fully playable with only this."""
 from __future__ import annotations
 
-from random import Random
-
 _TURN = {
     "crit": [
         "{actor} does not merely solve {hazard} — {actor} dismantles the reason it existed. "
@@ -5152,25 +5150,34 @@ _GENESIS = [
 ]
 
 
+def _pick(options: list, seq: int) -> str:
+    """Rotate through the phrasings by sequence number.
+
+    Deliberately not random: Random(n).choice() on a short list returns the same
+    element for small consecutive n, which would make the narrator repeat itself.
+    """
+    return options[seq % len(options)]
+
+
 class TemplateNarrator:
     """Deterministic per event, varied across events. Never claims a die roll."""
 
     name = "template"
 
     def narrate(self, job: dict) -> str:
-        rng = Random(job.get("event_seq", 0))
+        seq = int(job.get("event_seq", 0))
         kind = job.get("kind", "turn")
 
         if kind == "genesis":
-            return rng.choice(_GENESIS).format(
+            return _pick(_GENESIS, seq).format(
                 room_name=job.get("room_name", "the programme"),
                 hint=job.get("archetype_hint", "a complex engineering system"))
 
         if kind == "phase":
-            return rng.choice(_PHASE).format(phase=job.get("phase", "the next phase"))
+            return _pick(_PHASE, seq).format(phase=job.get("phase", "the next phase"))
 
         hazard = job.get("hazard") or {}
-        return rng.choice(_TURN[job.get("outcome", "success")]).format(
+        return _pick(_TURN[job.get("outcome", "success")], seq).format(
             actor=job.get("actor_name", "The engineer"),
             ability=job.get("ability_name", "the obvious approach"),
             hazard=hazard.get("name", "the problem"),
