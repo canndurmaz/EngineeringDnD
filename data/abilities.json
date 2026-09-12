@@ -1,0 +1,20 @@
+[
+  {"id": "descope", "name": "Descope", "class": "product_manager", "focus_cost": 1,
+   "stat": "COMMS", "dc_mod": -2, "unlock_phase": 0, "target": "hazard",
+   "on_success": [{"damage_hazard": "10"}, {"party": {"tech_debt": 3}}],
+   "on_fail": [{"party": {"tech_debt": 1}}],
+   "flavor": "You quietly move it to Phase 2."},
+  {"id": "stakeholder_charm", "name": "Stakeholder Charm", "class": "product_manager",
+   "focus_cost": 1, "stat": "COMMS", "dc_mod": 0, "unlock_phase": 0, "target": "party",
+   "on_success": [{"party": {"budget": 15}}], "on_fail": [{"party": {"budget": -5}}],
+   "flavor": "Nobody is quite sure what was agreed, but everyone feels good."},
+  {"id": "roadmap_rally", "name": "Roadmap Rally", "class": "product_manager",
+   "focus_cost": 2, "stat": "COMMS", "dc_mod": 1, "unlock_phase": 2, "target": "party",
+   "on_success": [{"restore_focus": {"scope": "party", "amount": "2"}}],
+   "on_fail": [], "flavor": "The slides are genuinely quite good."},
+  {"id": "reprioritize", "name": "Reprioritize", "class": "product_manager",
+   "focus_cost": 3, "stat": "SYSTEMS", "dc_mod": 3, "unlock_phase": 3, "target": "hazard",
+   "on_success": [{"skip_hazard": {"return_multiplier": 1.5}}],
+   "on_fail": [{"party": {"schedule": -3}}],
+   "flavor": "It is not gone. It is later, and angrier."}
+]

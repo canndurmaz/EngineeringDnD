@@ -1,0 +1,47 @@
+{
+  "mechanical_engineer": {
+    "name": "Mechanical Engineer", "primary": "CRAFT", "secondary": "RIGOR",
+    "role": "Structural damage and party shielding",
+    "blurb": "Owns the load paths, the thermal budget, and every argument about tolerances."
+  },
+  "computer_scientist": {
+    "name": "Computer Scientist", "primary": "RIGOR", "secondary": "INTUITION",
+    "role": "Burst damage and Technical Debt removal",
+    "blurb": "Can halve any problem in half the time, and will tell you the complexity class while doing it."
+  },
+  "ee_engineer": {
+    "name": "Electrical & Electronics Engineer", "primary": "RIGOR", "secondary": "CRAFT",
+    "role": "Reveal, resist, and expensive respins",
+    "blurb": "Knows where the return current actually goes. Nobody else does."
+  },
+  "system_engineer": {
+    "name": "System Engineer", "primary": "SYSTEMS", "secondary": "COMMS",
+    "role": "Force multiplier; lowers difficulty for everyone",
+    "blurb": "Wins not by rolling well but by changing what everyone else rolls against."
+  },
+  "product_manager": {
+    "name": "Product Manager", "primary": "COMMS", "secondary": "SYSTEMS",
+    "role": "Resource manipulation; trades debt for speed",
+    "blurb": "Can make any problem disappear. It comes back in the next phase, larger."
+  },
+  "mechanical_technician": {
+    "name": "Mechanical Technician", "primary": "CRAFT", "secondary": "GRIT",
+    "role": "Cheap, reliable, never wholly fails",
+    "blurb": "Has fixed it before, has the fixture for it, and is not impressed by your CAD model."
+  },
+  "electrical_technician": {
+    "name": "Electrical Technician", "primary": "CRAFT", "secondary": "GRIT",
+    "role": "Exposes weaknesses and enables allies",
+    "blurb": "Finds the fault in four minutes with a multimeter and an unkind expression."
+  },
+  "control_systems_engineer": {
+    "name": "Control Systems Engineer", "primary": "RIGOR", "secondary": "SYSTEMS",
+    "role": "Variance reduction; removes bad luck",
+    "blurb": "Does not gamble. Estimates, then corrects."
+  },
+  "mechatronics_engineer": {
+    "name": "Mechatronics Engineer", "primary": "SYSTEMS", "secondary": "CRAFT",
+    "role": "Generalist; borrows from every domain",
+    "blurb": "Fluent in three disciplines and trusted by none of them."
+  }
+}
