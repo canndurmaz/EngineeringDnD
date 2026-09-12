@@ -170,6 +170,30 @@ def create_app(config: "dict | None" = None) -> Flask:
             "latest_seq": app.service._room(room_id).latest_seq(),
         })
 
+    # --- the turn ----------------------------------------------------------
+
+    @app.post("/api/rooms/<room_id>/action")
+    def api_action(room_id):
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        body = request.get_json(silent=True) or {}
+        ability_id = body.get("ability_id")
+        if not ability_id:
+            raise ServiceError("no ability chosen")
+        result = app.service.act(room_id, found["player_id"], ability_id,
+                                 body.get("target_id"))
+        events = result.pop("events", [])
+        return jsonify({"result": result, "events": events})
+
+    @app.post("/api/rooms/<room_id>/end-turn")
+    def api_end_turn(room_id):
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        outcome = app.service.end_turn(room_id, found["player_id"])
+        return jsonify({"result": {"passed": True}, "events": outcome["events"]})
+
     return app
 
 
