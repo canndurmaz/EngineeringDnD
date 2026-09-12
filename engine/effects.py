@@ -98,8 +98,9 @@ def _do_damage_hazard(state, effect, ctx, dice, changes):
     weakness_stat = effect.get("double_if_weakness")
     if weakness_stat and hazard.get("weakness") == weakness_stat:
         amount *= 2
-    if effect.get("bonus_if_repeated") and state.get("last_ability_id") == \
-            (ctx.get("ability").id if ctx.get("ability") else None):
+    last = state.get("last_ability_id")
+    current = ctx.get("ability").id if ctx.get("ability") else None
+    if effect.get("bonus_if_repeated") and last is not None and last == current:
         amount = int(amount * (1 + effect["bonus_if_repeated"]))
     if ctx.get("crit"):
         amount *= 2

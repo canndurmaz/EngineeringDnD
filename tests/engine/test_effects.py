@@ -232,3 +232,46 @@ def test_effect_with_two_verbs_raises():
     s = make_state()
     with pytest.raises(EffectError, match="exactly one"):
         apply_effects(s, [{"damage_hazard": "1", "heal_ally": "1"}], ctx(s), Dice(1))
+
+
+def test_bonus_if_repeated_does_not_fire_without_a_prior_ability():
+    s = make_state()
+    changes = apply_effects(
+        s, [{"damage_hazard": "10", "bonus_if_repeated": 0.5}], ctx(s), Dice(1))
+    assert changes[0]["amount"] == 10
+
+
+class _StubAbility:
+    def __init__(self, ability_id):
+        self.id = ability_id
+
+
+def test_bonus_if_repeated_fires_when_ability_matches_last_used():
+    s = make_state()
+    s["last_ability_id"] = "pid_tune"
+    c = ctx(s)
+    c["ability"] = _StubAbility("pid_tune")
+    changes = apply_effects(
+        s, [{"damage_hazard": "10", "bonus_if_repeated": 0.5}], c, Dice(1))
+    assert changes[0]["amount"] == 15
+
+
+def test_crit_does_not_double_stress_self():
+    s = make_state()
+    apply_effects(s, [{"stress_self": "3"}], ctx(s, crit=True), Dice(1))
+    assert s["characters"]["p1"]["stamina"] == 7
+
+
+def test_crit_doubles_fraction_damage():
+    s = make_state()
+    s["hazards"][0]["severity"] = 20
+    changes = apply_effects(
+        s, [{"damage_hazard": {"fraction": 0.5}}], ctx(s, crit=True), Dice(1))
+    assert changes[0]["amount"] == 20
+
+
+def test_crit_doubles_per_party_focus_damage():
+    s = make_state()  # p1 focus 4, p2 focus 2 -> 6 total * 2 = 12, crit doubles to 24
+    changes = apply_effects(
+        s, [{"damage_hazard": {"per_party_focus": 2}}], ctx(s, crit=True), Dice(1))
+    assert changes[0]["amount"] == 24
