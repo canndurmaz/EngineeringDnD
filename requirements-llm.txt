@@ -1,0 +1,2 @@
+# Optional. The game runs and the full test suite passes without this.
+llama-cpp-python>=0.3.2
