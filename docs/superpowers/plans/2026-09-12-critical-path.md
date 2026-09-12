@@ -6249,7 +6249,9 @@ import re
 
 from engine.phases import PHASES
 
-_SEPARATOR = re.compile(r"\s+[-–—:]\s+")
+# A dash needs space on BOTH sides so hyphenated names survive ("Tolerance Stack-Up");
+# a colon needs space only after it, because "Name: description" is what models emit.
+_SEPARATOR = re.compile(r"\s+[-–—]\s+|\s*:\s+")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
 _MAX_NAME = 60
 
