@@ -1,0 +1,10 @@
+[
+  {"id": "car", "name": "Passenger Vehicle", "hint": "a mid-size electric passenger car"},
+  {"id": "aircraft", "name": "Aircraft", "hint": "a four-seat hybrid-electric trainer aircraft"},
+  {"id": "weapon_platform", "name": "Weapon Platform", "hint": "a vehicle-mounted remote weapon station"},
+  {"id": "spacecraft", "name": "Spacecraft", "hint": "a small satellite bus for low Earth orbit"},
+  {"id": "surgical_robot", "name": "Surgical Robot", "hint": "a seven-axis laparoscopic surgical manipulator"},
+  {"id": "robot_arm", "name": "Industrial Robot Arm", "hint": "a six-axis industrial pick-and-place arm"},
+  {"id": "submarine", "name": "Submersible", "hint": "a crewed shallow-water research submersible"},
+  {"id": "wind_turbine", "name": "Wind Turbine", "hint": "an offshore direct-drive wind turbine nacelle"}
+]
