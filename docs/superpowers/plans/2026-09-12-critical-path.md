@@ -331,8 +331,8 @@ Note: `engine/dice.py` imports `random` deliberately — it is the injected seam
 ```python
 # tests/test_purity.py — adjust the loop in test_engine_imports_no_io_modules
     for path in pathlib.Path("engine").rglob("*.py"):
-        if path.name == "dice.py":
-            continue  # the one sanctioned RNG seam
+        if path.as_posix() == "engine/dice.py":
+            continue  # the one sanctioned RNG seam, matched by full path
 ```
 
 - [ ] **Step 5: Run the tests to verify they pass**
