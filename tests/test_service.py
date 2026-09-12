@@ -218,6 +218,13 @@ def test_lobby_index_tracks_the_phase(svc):
     assert row["phase_index"] == 1
 
 
+def test_acting_before_the_game_starts_is_rejected(svc):
+    room_id = svc.create_room("Kestrel", "aircraft")
+    joined = svc.join_room(room_id, "Ada", "computer_scientist")
+    with pytest.raises(ServiceError, match="not started"):
+        svc.act(room_id, joined["player_id"], "unit_test_barrage")
+
+
 def test_a_room_survives_a_fresh_service_instance(tmp_path):
     catalog, templates, archetypes = (
         load_catalog(), load_hazard_templates(), load_archetypes())

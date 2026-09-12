@@ -190,7 +190,12 @@ class GameService:
                                             {"result": ending}))
 
     def _require_running(self, state: dict) -> None:
-        if state["room"]["status"] not in ("active", "lobby"):
+        status = state["room"]["status"]
+        if status == "lobby":
+            # Without this, the first player to join could solo the opening hazard
+            # while everyone else is still choosing a class.
+            raise ServiceError("the programme has not started yet")
+        if status != "active":
             raise ServiceError("this game is over")
 
     def act(self, room_id: str, player_id: str, ability_id: str,
