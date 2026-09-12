@@ -1,11 +1,15 @@
 """Flask application: HTML pages, JSON API, and the SSE event stream."""
 from __future__ import annotations
 
+import json
+import queue
 import secrets
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request, session
+from flask import (Flask, Response, jsonify, render_template, request, session,
+                   stream_with_context)
 
+from broker import EventBroker
 from engine.classes import STATS, load_catalog
 from engine.phases import PHASES, load_archetypes, load_hazard_templates
 from engine.rules import RuleError
@@ -50,10 +54,12 @@ def create_app(config: "dict | None" = None) -> Flask:
     data_dir = app.config["DATA_DIR"]
     catalog = load_catalog(data_dir)
     app.catalog = catalog
+    app.broker = EventBroker()
     app.service = GameService(app.config["ROOMS_ROOT"], catalog,
                               load_hazard_templates(data_dir),
                               load_archetypes(data_dir),
-                              queue=app.config.get("NARRATION"))
+                              queue=app.config.get("NARRATION"),
+                              broker=app.broker)
     app.archetypes = load_archetypes(data_dir)
 
     # --- error contract ----------------------------------------------------
@@ -193,6 +199,42 @@ def create_app(config: "dict | None" = None) -> Flask:
             return jsonify({"error": "you are not seated in this room"}), 403
         outcome = app.service.end_turn(room_id, found["player_id"])
         return jsonify({"result": {"passed": True}, "events": outcome["events"]})
+
+    # --- SSE ---------------------------------------------------------------
+
+    def _frame(seq, kind, payload) -> str:
+        body = json.dumps({"seq": seq, "kind": kind, **payload})
+        return f"id: {seq}\nevent: {kind}\ndata: {body}\n\n"
+
+    @app.get("/api/rooms/<room_id>/stream")
+    def api_stream(room_id):
+        app.service.snapshot(room_id)          # raises ServiceError -> 400 if unknown
+        header = request.headers.get("Last-Event-ID")
+        since = int(header or request.args.get("since") or 0)
+        once = request.args.get("once") == "1"
+
+        def generate():
+            for event in app.service.events_since(room_id, since):
+                yield _frame(event["seq"], event["kind"], event["payload"])
+            if once:
+                return
+            q = app.broker.subscribe(room_id)
+            try:
+                yield ": connected\n\n"
+                while True:
+                    try:
+                        item = q.get(timeout=20)
+                    except queue.Empty:
+                        yield ": keep-alive\n\n"     # keeps proxies from timing out
+                        continue
+                    yield _frame(item["seq"], item["kind"], item)
+            finally:
+                app.broker.unsubscribe(room_id, q)
+
+        return Response(stream_with_context(generate()),
+                        mimetype="text/event-stream",
+                        headers={"Cache-Control": "no-cache",
+                                 "X-Accel-Buffering": "no"})
 
     return app
 

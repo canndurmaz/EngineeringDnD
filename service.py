@@ -23,12 +23,13 @@ class ServiceError(Exception):
 
 class GameService:
     def __init__(self, root: str, catalog: Catalog, templates: dict,
-                 archetypes: list, queue=None) -> None:
+                 archetypes: list, queue=None, broker=None) -> None:
         self.root = root
         self.catalog = catalog
         self.templates = templates
         self.archetypes = {a["id"]: a for a in archetypes}
         self.queue = queue
+        self.broker = broker
         self.index = IndexDB(root)
         self._locks: dict = {}
         self._locks_guard = threading.Lock()
@@ -61,6 +62,13 @@ class GameService:
         self.index.upsert(room_id, state["room"]["name"], state["room"]["archetype"],
                           state["room"]["phase_index"], state["room"]["status"],
                           len(state["characters"]))
+
+    def _publish(self, room_id: str, events: list) -> None:
+        if self.broker is None:
+            return
+        for event in events:
+            self.broker.publish(room_id, {"seq": event["seq"], "kind": event["kind"],
+                                          **event["payload"]})
 
     # --- lobby -------------------------------------------------------------
 
@@ -99,6 +107,7 @@ class GameService:
             char = new_character(player_id, display_name,
                                  self.catalog.classes[class_id], self.catalog,
                                  self._dice(state))
+            start_seq = room.latest_seq()
             room.add_player(player_id, display_name, token, class_id)
             state["characters"][player_id] = char
             state["turn"]["order"].append(player_id)
@@ -106,6 +115,7 @@ class GameService:
             room.append_event("player_joined", player_id,
                               {"name": display_name, "class_id": class_id})
             self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(start_seq))
             return {"player_id": player_id, "token": token, "character": char}
 
     def player_by_token(self, room_id: str, token: str) -> "dict | None":
@@ -117,12 +127,14 @@ class GameService:
             state = room.load_state()
             if not state["characters"]:
                 raise ServiceError("a room needs at least one player to start")
+            start_seq = room.latest_seq()
             state["room"]["status"] = "active"
             state["active_hazard_id"] = next_hazard_id(state)
             room.save_state(state)
             room.append_event("game_started", None,
                               {"players": state["turn"]["order"]})
             self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(start_seq))
 
     # --- reads -------------------------------------------------------------
 
@@ -213,6 +225,7 @@ class GameService:
             self._after_turn(room_id, room, state, event_seqs)
             room.save_state(state)              # commit BEFORE queueing narration
             self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(action_seq - 1))
 
         self._enqueue_narration(room_id, player_id, action_seq, state, ability, result)
         return {"event_seq": action_seq, "outcome": result.outcome,
@@ -238,6 +251,7 @@ class GameService:
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(start_seq))
             return {"events": room.events_since(start_seq)}
 
     # --- narration hand-off -------------------------------------------------
