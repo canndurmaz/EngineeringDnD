@@ -1,12 +1,15 @@
 """Lobby registry. A rebuildable cache over rooms/*/game.db, never authoritative."""
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
 from storage.room_db import RoomDB
+
+log = logging.getLogger(__name__)
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS rooms (
@@ -75,7 +78,11 @@ class IndexDB:
             conn.execute("DELETE FROM rooms")
         count = 0
         for room_id in RoomDB.list_room_ids(str(self.root)):
-            room = RoomDB.open(str(self.root), room_id)
+            try:
+                room = RoomDB.open(str(self.root), room_id)
+            except Exception:
+                log.warning("index rebuild: cannot open room %s; skipping", room_id)
+                continue
             try:
                 state = room.load_state()
                 self.upsert(room_id, state["room"]["name"],
@@ -83,6 +90,8 @@ class IndexDB:
                             state["room"]["phase_index"], state["room"]["status"],
                             len(room.players()))
                 count += 1
+            except Exception:
+                log.warning("index rebuild: room %s is unreadable; skipping", room_id)
             finally:
                 room.close()
         return count

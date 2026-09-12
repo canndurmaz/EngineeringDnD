@@ -66,3 +66,26 @@ def test_rebuild_captures_player_counts(tmp_path, index):
 def test_index_file_lives_beside_the_rooms(tmp_path, index):
     index.upsert("abc", "K", "car", 0, "lobby", 1)
     assert (tmp_path / "index.db").exists()
+
+
+def test_rebuild_skips_corrupt_databases(tmp_path, index):
+    """Verify rebuild() gracefully handles corrupt room databases."""
+    # Create two good rooms
+    RoomDB.create(str(tmp_path), "r1", "Kestrel", "aircraft", 1).close()
+    RoomDB.create(str(tmp_path), "r2", "Osprey", "car", 2).close()
+
+    # Create a third room, then corrupt its database
+    room = RoomDB.create(str(tmp_path), "r3", "Broken", "car", 0)
+    room.close()
+    corrupt_db = tmp_path / "r3" / "game.db"
+    corrupt_db.write_bytes(b"not a database")
+
+    # rebuild() should return 2 (only the good rooms), not crash
+    assert index.rebuild() == 2
+
+    # The two good rooms should be indexed
+    room_ids = {r["room_id"] for r in index.list_rooms()}
+    assert room_ids == {"r1", "r2"}
+
+    # The corrupt room should NOT be in the index
+    assert "r3" not in room_ids
