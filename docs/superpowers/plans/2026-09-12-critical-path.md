@@ -5367,7 +5367,15 @@ def test_worker_publishes_to_the_broker(rig):
     q = NarrationQueue()
     q.submit(make_job(room_id, seq))
     NarrationWorker(q, FakeNarrator(), svc, broker).run_once(timeout=1)
-    assert sub.get(timeout=1)["kind"] == "narration"
+    # Assert a narration was published, not that it was FIRST: once Task 21 adds
+    # token streaming, narration_chunk events precede it on the same broker.
+    kinds = []
+    while True:
+        try:
+            kinds.append(sub.get(timeout=0.3)["kind"])
+        except Exception:
+            break
+    assert "narration" in kinds
 
 
 def test_model_failure_falls_back_to_the_template(rig):
@@ -7631,6 +7639,15 @@ class StreamingNarrator:
         yield from self.chunks
 
 
+class NoStream:
+    """A narrator with no stream(), proving the non-streaming path still works."""
+
+    name = "nostream"
+
+    def narrate(self, job):
+        return "It holds."
+
+
 class BrokenStreamNarrator:
     name = "broken"
 
@@ -7734,31 +7751,14 @@ def test_a_stream_that_dies_falls_back_to_the_template(rig):
 
 
 def test_a_narrator_without_stream_still_works(rig):
-    from narrator.base import FakeNarrator
     svc, room_id, seq = rig
     broker = EventBroker()
     sub = broker.subscribe(room_id)
     q = NarrationQueue()
     q.submit(make_job(room_id, seq))
-    # FakeNarrator does expose stream(); strip it to prove the non-streaming path.
-    narrator = FakeNarrator("It holds.")
-    del type(narrator).stream
-    NarrationWorker(q, narrator, svc, broker).run_once(timeout=1)
+    NarrationWorker(q, NoStream(), svc, broker).run_once(timeout=1)
     assert [e["kind"] for e in drain(sub)] == ["narration"]
 ```
-
-Note: the last test mutates the class, so keep it last in the file, or better, define a
-local `class NoStream:` with only `name` and `narrate` — do that instead of `del`:
-
-```python
-class NoStream:
-    name = "nostream"
-
-    def narrate(self, job):
-        return "It holds."
-```
-
-and use `NoStream()` in `test_a_narrator_without_stream_still_works`.
 
 - [ ] **Step 2: Run to verify they fail**
 
