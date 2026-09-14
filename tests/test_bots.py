@@ -81,7 +81,7 @@ def test_a_party_buff_already_running_is_not_reapplied(catalog):
 
 
 def test_otherwise_it_attacks_with_the_best_expected_damage(catalog):
-    """Half of a 30-severity hazard beats an average 2d4+RIGOR."""
+    """A fraction of a 30-severity hazard beats an average 3d6+RIGOR."""
     state = board("computer_scientist",
                   ["binary_search_debug", "unit_test_barrage"])
     assert choose_action(state, "p1", catalog) == ("binary_search_debug", None)
@@ -132,14 +132,14 @@ def test_the_policy_mutates_nothing(catalog):
 def test_expected_damage_averages_a_dice_expression(catalog):
     state = board("computer_scientist", ["unit_test_barrage"])
     mods = {"RIGOR": 3}
-    ability = catalog.abilities["unit_test_barrage"]     # 2d4+RIGOR
-    assert expected_damage(state, ability, mods) == 2 * 2.5 + 3
+    ability = catalog.abilities["unit_test_barrage"]     # 3d6+RIGOR
+    assert expected_damage(state, ability, mods) == 3 * 3.5 + 3
 
 
 def test_expected_damage_reads_a_fraction_of_the_hazard(catalog):
     state = board("computer_scientist", ["binary_search_debug"])
-    ability = catalog.abilities["binary_search_debug"]   # half of severity 30
-    assert expected_damage(state, ability, {}) == 15
+    ability = catalog.abilities["binary_search_debug"]   # 0.65 of severity 30
+    assert expected_damage(state, ability, {}) == pytest.approx(19.5)
 
 
 def test_expected_damage_reads_the_party_focus_pool(catalog):
@@ -147,3 +147,36 @@ def test_expected_damage_reads_the_party_focus_pool(catalog):
     pool = sum(c["focus"] for c in state["characters"].values())
     ability = catalog.abilities["power_budget"]          # 2 per point of focus
     assert expected_damage(state, ability, {}) == 2 * pool
+
+
+# --- reading the gate boss's card -------------------------------------------
+
+def _bodge_board():
+    """A board where the only interesting choice left is whether to bodge it:
+    the weakness is known and the party buff is already running."""
+    running = [{"name": "next_attack_bonus", "scope": "party", "value": 4,
+                "rounds": 2, "target_id": None}]
+    state = board("electrical_technician", ["solder_bodge", "continuity_check"],
+                  conditions=running)
+    state["hazards"][0]["revealed"] = ["weakness"]
+    return state
+
+
+def test_a_bot_does_not_spend_its_turn_on_a_move_the_boss_cancels(catalog):
+    """no_descope: the debt shortcut does nothing here, so it is not a move."""
+    state = _bodge_board()
+    state["hazards"][0]["rule"] = {"id": "no_descope", "text": "No shortcuts.",
+                                   "params": {}}
+    assert choose_action(state, "p1", catalog)[0] != "solder_bodge"
+
+
+def test_the_same_bot_plays_that_move_at_an_ordinary_problem(catalog):
+    assert choose_action(_bodge_board(), "p1", catalog)[0] == "solder_bodge"
+
+
+def test_focused_fire_makes_chip_damage_worth_what_it_lands_for(catalog):
+    state = board("mechanical_technician", ["shop_floor_fix"])
+    state["hazards"][0]["rule"] = {"id": "focused_fire", "text": "Chip bounces.",
+                                  "params": {"threshold": 8, "floor": 1}}
+    ability = catalog.abilities["shop_floor_fix"]
+    assert expected_damage(state, ability, {"CRAFT": 2}) == 1.0

@@ -77,3 +77,74 @@ def test_binary_search_debug_is_once_per_hazard(cat):
 
 def test_cross_domain_hack_is_once_per_phase(cat):
     assert cat.abilities["cross_domain_hack"].once_per == "phase"
+
+
+# --- the cost curve ---------------------------------------------------------
+
+#: A class primary sits at the top of the 8-16 band, so +3 is what a specialist
+#: actually adds to their own damage. The exact number does not matter; it is
+#: the same for every tier, so it cannot flatter one of them.
+SPECIALIST_MOD = 3
+
+
+def _mean_damage(ability) -> float:
+    """Mean severity one landed use removes, over the dice-expression damage.
+
+    Deliberately blind to the fraction- and pool-scaled forms: those read the
+    board rather than the ability, and averaging them against a dice roll would
+    compare two different things.
+    """
+    total = 0.0
+    for effect in ability.on_success:
+        spec = effect.get("damage_hazard")
+        if spec is None or isinstance(spec, dict):
+            continue
+        text = str(spec)
+        for stat in STATS:
+            if stat in text:
+                total += SPECIALIST_MOD
+                text = text.replace("+" + stat, "")
+        if "d" in text:
+            count, _, faces = text.partition("d")
+            total += int(count or 1) * (int(faces) + 1) / 2
+        elif text.strip():
+            total += float(text)
+    return total
+
+
+def _by_cost(cat) -> dict:
+    tiers: dict = {}
+    for ability in cat.abilities.values():
+        damage = _mean_damage(ability)
+        if damage:
+            tiers.setdefault(ability.focus_cost, []).append((ability.id, damage))
+    return tiers
+
+
+def test_spending_more_focus_buys_more_damage(cat):
+    """The whole point of a cost: a 2F swing has to beat a 1F one outright."""
+    tiers = _by_cost(cat)
+    means = {cost: sum(d for _, d in rows) / len(rows)
+             for cost, rows in sorted(tiers.items())}
+    costs = sorted(means)
+    assert costs == [0, 1, 2], means
+    for cheaper, dearer in zip(costs, costs[1:]):
+        assert means[dearer] > means[cheaper] * 1.5, means
+
+
+def test_damage_per_focus_rises_with_the_price(cat):
+    """Flat damage-per-Focus is what made the cheap button the only button."""
+    tiers = _by_cost(cat)
+    per_focus = {cost: sum(d for _, d in rows) / len(rows) / cost
+                 for cost, rows in tiers.items() if cost > 0}
+    costs = sorted(per_focus)
+    for cheaper, dearer in zip(costs, costs[1:]):
+        assert per_focus[dearer] > per_focus[cheaper], per_focus
+
+
+def test_no_free_ability_out_damages_a_paid_one(cat):
+    """A 0F ability is chip damage, utility or situational -- never the default."""
+    tiers = _by_cost(cat)
+    worst_paid = min(d for _, d in tiers[1])
+    for ability_id, damage in tiers[0]:
+        assert damage < worst_paid / 2, f"{ability_id} chips for {damage}"
