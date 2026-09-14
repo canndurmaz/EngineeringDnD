@@ -111,18 +111,34 @@ function renderRail(state) {
     `${state.phase.name} · ${state.phase.index + 1}/${state.phase.count}`;
 }
 
+/* A move can only land when the room is running, the player holds a seat, and
+   the turn is theirs. The buttons say the same thing the server would. */
+const canAct = (state) =>
+  state.room.status === "active" && !!state.you &&
+  state.turn.active_player_id === state.you.player_id;
+
 function renderAbilities(state) {
   me = state.you;
-  const mine = state.turn.active_player_id === me?.player_id;
-  el("turn-hint").textContent = me
-    ? (mine ? "it is your turn" : "waiting for another engineer")
-    : "you are watching";
+  const lobby = state.room.status === "lobby";
+  const running = state.room.status === "active";
+  const mine = canAct(state);
+  el("turn-hint").textContent = !me ? "you are watching"
+    : lobby ? "the programme has not started"
+    : !running ? "the programme has ended"
+    : mine ? "it is your turn" : "waiting for another engineer";
   el("pass").disabled = !mine;
-  if (!me) { el("abilities").innerHTML = ""; return; }
+  if (!me) {
+    el("abilities").innerHTML =
+      `<p class="watching">You are watching this table. Take a seat on the
+       join page to play.</p>`;
+    return;
+  }
 
   el("abilities").innerHTML = me.abilities.map((a) => {
     let why = "";
-    if (!mine) why = "not your turn";
+    if (lobby) why = "the programme hasn't started";
+    else if (!running) why = "the programme has ended";
+    else if (!mine) why = "not your turn";
     else if (me.focus < a.focus_cost) why = `needs ${a.focus_cost} focus, you have ${me.focus}`;
     else if (me.stamina <= 0) why = "you are burned out";
     return `<button class="ability" data-ability="${a.id}" ${why ? "disabled" : ""}>
@@ -149,6 +165,69 @@ function renderLevelChoice(state) {
               aria-pressed="${stat === current ? "true" : "false"}">
         ${esc(stat)}</button>`).join("")}</div>
     <p class="roll" id="level-choice-error" role="alert"></p>`;
+}
+
+/* --- the annunciator ------------------------------------------------------ */
+
+/* The one place that answers "what should I do right now?". Everything it says
+   comes from room.status, whose turn it is, and whether the DM still owes us a
+   line -- never from the player's own data alone. */
+
+const ENDED = {
+  lost_budget: "The budget ran out.",
+  lost_schedule: "The schedule ran out.",
+  lost_burnout: "The whole team burned out.",
+};
+
+/* A narration is outstanding when an action entry is still .pending: the log
+   marks one the moment the action lands and clears it when the prose arrives.
+   No new server state -- the signal is already on the page. */
+const narrationOutstanding = () => !!el("log").querySelector(".entry.pending");
+
+function renderAnnunciator(state) {
+  const band = el("annunciator");
+  if (!band) return;
+  const status = state.room.status;
+  const activeId = state.turn.active_player_id;
+  const active = activeId ? state.characters[activeId] : null;
+  const seated = (state.party_size || {}).seated ?? 0;
+
+  let lamp = "other", word = "", say = "", offerStart = false;
+
+  if (status === "lobby") {
+    lamp = "lobby";
+    word = "waiting";
+    say = `${seated} seated. Start when everyone's in.`;
+    offerStart = !!state.you;
+  } else if (status === "won") {
+    lamp = "won";
+    word = "shipped";
+    say = `${state.room.name} passed qualification.`;
+  } else if (status !== "active") {
+    lamp = "lost";
+    word = "over";
+    say = ENDED[status] || "The programme is cancelled.";
+  } else if (narrationOutstanding()) {
+    lamp = "writing";
+    word = "dm writing";
+    say = "Putting the last turn into words.";
+  } else if (canAct(state)) {
+    lamp = "you";
+    word = "your turn";
+    say = "Choose an ability below.";
+  } else if (active) {
+    word = active.name;
+    say = `${active.name} is ${active.is_bot ? "working" : "deciding"}.`;
+  } else {
+    word = "standing by";
+    say = "Waiting on the next turn.";
+  }
+
+  band.dataset.state = lamp;
+  el("ann-word").textContent = word;        // textContent, never innerHTML
+  el("ann-say").textContent = say;
+  el("ann-start").hidden = !offerStart;
+  if (!offerStart) el("ann-error").textContent = "";
 }
 
 /* --- the log -------------------------------------------------------------- */
@@ -241,6 +320,7 @@ function renderEvent(event) {
     prose.dataset.streaming = "0";
     prose.textContent = event.text;
     el("log").scrollTop = el("log").scrollHeight;
+    if (lastState) renderAnnunciator(lastState);   // the DM is done writing
     return;
   }
 
@@ -274,6 +354,7 @@ function renderEvent(event) {
     /* Presentation only: the state is already committed, so the tumble never
        gates a turn. History replayed on reconnect settles instantly -- forty
        past rolls tumbling at once is noise, not drama. */
+    if (lastState) renderAnnunciator(lastState);    // the DM now owes us a line
     if (isLive(event)) {
       const roll = node.querySelector(".roll");
       roll.classList.add("rolling");
@@ -298,7 +379,7 @@ async function refresh() {
   const state = await api(`/api/rooms/${ROOM}/state`);
   lastState = state;
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
-  renderLevelChoice(state);
+  renderLevelChoice(state); renderAnnunciator(state);
   el("dm-badge").textContent = `DM: ${state.narrator ?? "template"}`;
   if (state.room.premise) el("premise").textContent = state.room.premise;
   return state;
@@ -364,6 +445,16 @@ el("level-choice").addEventListener("click", async (event) => {
     const box = el("level-choice-error");
     if (box) box.textContent = error.message;
   }
+});
+
+el("ann-start").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  el("ann-error").textContent = "";
+  try { await api(`/api/rooms/${ROOM}/start`, { method: "POST" }); }
+  catch (error) { el("ann-error").textContent = error.message; }
+  button.disabled = false;
+  await refresh();
 });
 
 el("pass").addEventListener("click", async () => {

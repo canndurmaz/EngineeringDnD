@@ -32,6 +32,11 @@ body {
 
 a { color: var(--cyan); }
 
+/* Every control has to show where the keyboard is. */
+:where(a, button, input, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--cyan); outline-offset: 2px; border-radius: 3px;
+}
+
 header.bar {
   display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
   padding: 14px 20px; border-bottom: 1px solid var(--line);
@@ -153,7 +158,62 @@ input, select {
   .roll.rolling .nat  { animation: none; filter: none; transform: none; opacity: 1; }
   .roll.rolling .rest { opacity: 1; }
   .roll .rest { transition: none; }
+  /* The lamp still shows its colour; it simply stops breathing. */
+  .annunciator .lamp { animation: none; opacity: 1; }
 }
+
+/* --- the annunciator ------------------------------------------------------ */
+/* A master-caution band: one lamp, one state word, one instruction, and the one
+   action if there is one. --lamp is set by [data-state] and nothing else. */
+.annunciator {
+  --lamp: var(--ink-dim);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 12px 16px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  border-left: 3px solid var(--lamp); border-radius: 6px;
+}
+.annunciator[data-state="lobby"]   { --lamp: var(--amber); }
+.annunciator[data-state="you"],
+.annunciator[data-state="writing"] { --lamp: var(--cyan); }
+.annunciator[data-state="won"]     { --lamp: var(--green); }
+.annunciator[data-state="lost"]    { --lamp: var(--red); }
+
+.annunciator .lamp {
+  width: 11px; height: 11px; flex: 0 0 11px; border-radius: 50%;
+  background: var(--lamp);
+}
+.ann-text {
+  margin: 0; flex: 1 1 240px; min-width: 0;
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+}
+.ann-word {
+  font-size: 12px; letter-spacing: .16em; text-transform: uppercase;
+  font-weight: 600; color: var(--lamp);
+}
+.ann-say { color: var(--ink-dim); }
+.ann-say::before { content: "\00b7"; margin-right: 10px; color: var(--line); }
+#ann-start { flex: 0 0 auto; }
+#ann-error { flex: 1 0 100%; margin: 0; font-size: 13px; }
+#ann-error:empty { display: none; }
+
+/* The only motion on the page besides the d20: the lamp, and only while the
+   table is genuinely waiting on somebody. */
+@keyframes lamp-pulse { 50% { opacity: .3; } }
+.annunciator[data-state="you"] .lamp,
+.annunciator[data-state="writing"] .lamp {
+  animation: lamp-pulse 1.7s ease-in-out infinite;
+}
+
+/* A phone still has to read it, so the band stacks instead of squeezing. */
+@media (max-width: 520px) {
+  .annunciator { align-items: flex-start; gap: 10px; }
+  .ann-text { flex-direction: column; gap: 2px; }
+  .ann-say::before { content: none; }
+  #ann-start { width: 100%; }
+}
+
+/* Someone with no seat: the board and the log, and a line saying so. */
+.watching { grid-column: 1 / -1; margin: 0; color: var(--ink-dim); font-size: 13px; }
 
 /* --- bots ---------------------------------------------------------------- */
 .chip-bot {

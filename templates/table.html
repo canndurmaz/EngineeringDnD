@@ -13,6 +13,18 @@
   </section>
 
   <section>
+    <!-- The annunciator: one band that always answers "what should I do now?".
+         Lamp, state word, instruction, and the one action if there is one. -->
+    <div class="annunciator" id="annunciator" data-state="boot">
+      <span class="lamp" aria-hidden="true"></span>
+      <p class="ann-text" id="ann-live" aria-live="polite">
+        <span class="ann-word num" id="ann-word">CONNECTING</span>
+        <span class="ann-say" id="ann-say">Reading the room.</span>
+      </p>
+      <button type="button" id="ann-start" hidden>Start the programme</button>
+      <p class="debt" id="ann-error" role="alert"></p>
+    </div>
+
     <div class="panel">
       <h2>Programme</h2>
       <p id="premise" class="roll">The DM is drafting your programme…</p>
