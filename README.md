@@ -28,6 +28,24 @@ the official repo instead, accept the licence on Hugging Face and export `HF_TOK
 On a 2-core CPU expect roughly 5-15 tokens/sec. That is fine: rules resolve in
 milliseconds and prose catches up asynchronously, so nobody waits on the model.
 
+### Tuning inference
+
+Four environment variables, read at startup. Anything that is not a positive
+integer is ignored and the default below is used.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CP_MAX_TOKENS` | `60` | Longest per-turn narration, in tokens. |
+| `CP_N_CTX` | `1024` | Context window. The prompts stay under ~400 tokens. |
+| `CP_N_THREADS` | `2` | Inference threads. Match your core count. |
+| `CP_N_BATCH` | `512` | Prompt prefill batch size. |
+
+On CPU, `CP_MAX_TOKENS` is the one that matters: generation time is essentially
+linear in the tokens emitted, so halving it roughly halves the wait.
+
+The room-opening brief is generated once, in the background, and keeps its own
+longer budget regardless of `CP_MAX_TOKENS`.
+
 ## How it plays
 
 - Six stats: RIGOR, INTUITION, CRAFT, SYSTEMS, COMMS, GRIT.
