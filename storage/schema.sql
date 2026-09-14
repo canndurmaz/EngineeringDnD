@@ -61,7 +61,8 @@ CREATE TABLE IF NOT EXISTS hazards (
     revealed      TEXT NOT NULL DEFAULT '[]',
     defeated      INTEGER NOT NULL DEFAULT 0,
     is_boss       INTEGER NOT NULL DEFAULT 0,
-    subsystem     TEXT NOT NULL DEFAULT ''
+    subsystem     TEXT NOT NULL DEFAULT '',
+    rule          TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS turn_state (

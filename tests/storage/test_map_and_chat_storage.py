@@ -20,12 +20,13 @@ def room(tmp_path):
 
 
 def _pre_map_schema() -> str:
-    """schema.sql as it read before hazards gained `subsystem` and before the
-    messages table existed at all."""
+    """schema.sql as it read before hazards gained `subsystem` (and, later,
+    `rule`) and before the messages table existed at all."""
     schema = (pathlib.Path("storage") / "schema.sql").read_text()
     schema = schema.replace(
         "    is_boss       INTEGER NOT NULL DEFAULT 0,\n"
-        "    subsystem     TEXT NOT NULL DEFAULT ''\n",
+        "    subsystem     TEXT NOT NULL DEFAULT '',\n"
+        "    rule          TEXT NOT NULL DEFAULT ''\n",
         "    is_boss       INTEGER NOT NULL DEFAULT 0\n")
     start = schema.index("CREATE TABLE IF NOT EXISTS messages")
     end = schema.index(");", start) + 3

@@ -110,6 +110,13 @@ class RoomDB:
             conn.execute("ALTER TABLE hazards"
                          " ADD COLUMN subsystem TEXT NOT NULL DEFAULT ''")
             conn.commit()
+        # A gate boss's special rule, as the JSON it is in the data file. Same
+        # idempotent ALTER as subsystem above, for the same reason: a room
+        # created before the column existed must still save.
+        if hazard_columns and "rule" not in hazard_columns:
+            conn.execute("ALTER TABLE hazards"
+                         " ADD COLUMN rule TEXT NOT NULL DEFAULT ''")
+            conn.commit()
         # A whole new table, not a column: CREATE TABLE IF NOT EXISTS is already
         # idempotent, but schema.sql only ever runs on create, so an existing
         # room would never see it without this line.
@@ -197,6 +204,12 @@ class RoomDB:
             # out the same shape.
             if not row["subsystem"]:
                 row.pop("subsystem")
+            # Same again for the boss rule: an ordinary problem carries no
+            # `rule` key at all, in or out.
+            if row.get("rule"):
+                row["rule"] = json.loads(row["rule"])
+            else:
+                row.pop("rule", None)
             hazards.append(row)
 
         state = {
@@ -256,13 +269,15 @@ class RoomDB:
                 conn.execute(
                     "INSERT INTO hazards (id, phase_index, ordinal, name, description,"
                     " severity, max_severity, dc, attack_type, weakness, revealed,"
-                    " defeated, is_boss, subsystem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " defeated, is_boss, subsystem, rule)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (hazard["id"], hazard["phase_index"], hazard["ordinal"],
                      hazard["name"], hazard["description"], hazard["severity"],
                      hazard["max_severity"], hazard["dc"], hazard["attack_type"],
                      hazard["weakness"], json.dumps(hazard["revealed"]),
                      int(hazard["defeated"]), int(hazard["is_boss"]),
-                     hazard.get("subsystem") or ""))
+                     hazard.get("subsystem") or "",
+                     json.dumps(hazard["rule"]) if hazard.get("rule") else ""))
 
     # --- players -----------------------------------------------------------
 
