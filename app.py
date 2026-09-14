@@ -14,11 +14,12 @@ from flask import (Flask, Response, abort, jsonify, render_template, request,
                    session, stream_with_context, url_for)
 
 import appearance as appearance_lib
+from bots import BotRunner
 from broker import EventBroker
 from engine.classes import STATS, load_catalog
 from engine.phases import PHASES, load_archetypes, load_hazard_templates
 from engine.rules import RuleError
-from service import GameService, ServiceError
+from service import MAX_SEATS, GameService, ServiceError
 
 
 NAME_MAX = 40  # the client's maxlength is UX only; this is the real limit
@@ -145,6 +146,13 @@ def create_app(config: "dict | None" = None) -> Flask:
         app.worker.start()
     app.service.queue = app.narration_queue
 
+    # Bots play themselves on their own thread, for the same reason narration
+    # has one: a turn must never wait on anything that is not the player.
+    # Tests drive BotRunner.run_once directly instead, so no thread is started.
+    app.bots = BotRunner(app.service, catalog)
+    if not app.config.get("TESTING"):
+        app.bots.start()
+
     # --- error contract ----------------------------------------------------
 
     @app.errorhandler(ServiceError)
@@ -247,6 +255,21 @@ def create_app(config: "dict | None" = None) -> Flask:
         app.service.start_game(room_id)
         return jsonify({"ok": True})
 
+    @app.post("/api/rooms/<room_id>/bots")
+    def api_add_bot(room_id):
+        # Same guard as /start: filling the table is a decision for the people
+        # already sitting at it, not for anyone who can reach the URL.
+        if not require_seat(room_id):
+            return jsonify({"error": "you are not seated in this room"}), 403
+        added = app.service.add_bot(room_id, _text(_body().get("class_id")))
+        return jsonify(added), 201
+
+    @app.delete("/api/rooms/<room_id>/bots/<player_id>")
+    def api_remove_bot(room_id, player_id):
+        if not require_seat(room_id):
+            return jsonify({"error": "you are not seated in this room"}), 403
+        return jsonify(app.service.remove_bot(room_id, player_id))
+
     @app.post("/api/rooms/<room_id>/level-choice")
     def api_level_choice(room_id):
         found = require_seat(room_id)
@@ -274,7 +297,11 @@ def create_app(config: "dict | None" = None) -> Flask:
                 if a.id in char["unlocked"]]
         order = state["turn"]["order"]
         active = order[state["turn"]["turn_index"]] if order else None
+        bots = sum(1 for c in state["characters"].values() if c.get("is_bot"))
         return jsonify({
+            "party_size": {"seated": len(state["characters"]), "bots": bots,
+                           "humans": len(state["characters"]) - bots,
+                           "max": MAX_SEATS},
             "room": state["room"], "party": state["party"],
             "characters": state["characters"], "hazard": _public_hazard(state),
             "active_hazard_id": state["active_hazard_id"],

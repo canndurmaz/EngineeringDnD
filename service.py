@@ -18,6 +18,10 @@ from storage.room_db import RoomDB, RoomNotFound
 
 _ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no look-alike characters
 
+# A table seats this many engineers, human or otherwise. There are more classes
+# than seats on purpose: filling a room with bots should still leave choices.
+MAX_SEATS = 6
+
 
 class ServiceError(Exception):
     """A request that is wrong about the world: unknown room, taken class, game over."""
@@ -66,7 +70,9 @@ class GameService:
     def _reindex(self, room_id: str, state: dict) -> None:
         self.index.upsert(room_id, state["room"]["name"], state["room"]["archetype"],
                           state["room"]["phase_index"], state["room"]["status"],
-                          len(state["characters"]))
+                          len(state["characters"]),
+                          sum(1 for c in state["characters"].values()
+                              if c.get("is_bot")))
 
     def _publish(self, room_id: str, events: list) -> None:
         if self.broker is None:
@@ -134,6 +140,74 @@ class GameService:
             # a blob nothing else ever reads.
             return {"player_id": player_id, "token": token, "character": char,
                     "roll": roll}
+
+    # --- bots --------------------------------------------------------------
+
+    def _bot_name(self, state: dict) -> str:
+        """Unit-1, Unit-2, ... -- the lowest number this room is not using."""
+        taken = {c["name"] for c in state["characters"].values()}
+        number = 1
+        while f"Unit-{number}" in taken:
+            number += 1
+        return f"Unit-{number}"
+
+    def add_bot(self, room_id: str, class_id: str) -> dict:
+        """Seat a computer-controlled engineer. Same seat rules as a human."""
+        if class_id not in self.catalog.classes:
+            raise ServiceError(f"unknown class: {class_id}")
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            if any(c["class_id"] == class_id for c in state["characters"].values()):
+                raise ServiceError(f"{class_id} is already taken in this room")
+            if len(state["characters"]) >= MAX_SEATS:
+                raise ServiceError(f"this room is full ({MAX_SEATS} seats)")
+            player_id = "b" + secrets.token_hex(4)
+            name = self._bot_name(state)
+            char, _ = new_character_detailed(player_id, name,
+                                             self.catalog.classes[class_id],
+                                             self.catalog, self._dice(state))
+            char["appearance"] = appearance_lib.random_appearance()
+            char["is_bot"] = True
+            start_seq = room.latest_seq()
+            # A bot still gets a players row -- characters is foreign-keyed to it
+            # -- and a token nobody is ever handed, so no browser can drive it.
+            room.add_player(player_id, name, secrets.token_urlsafe(24), class_id)
+            state["characters"][player_id] = char
+            state["turn"]["order"].append(player_id)
+            room.save_state(state)
+            room.append_event("bot_added", player_id,
+                              {"name": name, "class_id": class_id})
+            self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(start_seq))
+            return {"player_id": player_id, "character": char}
+
+    def remove_bot(self, room_id: str, player_id: str) -> dict:
+        """Free a bot's seat. A human is never removable through this door."""
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            char = state["characters"].get(player_id)
+            if char is None:
+                raise ServiceError("no such engineer in this room")
+            if not char.get("is_bot"):
+                raise ServiceError("only a bot can be removed")
+            start_seq = room.latest_seq()
+            state["characters"].pop(player_id)
+            order = state["turn"]["order"]
+            if player_id in order:
+                order.remove(player_id)
+            # The removed seat may have been the active one, or below it.
+            if order:
+                state["turn"]["turn_index"] %= len(order)
+            else:
+                state["turn"]["turn_index"] = 0
+            room.save_state(state)          # characters go first; the FK points here
+            room.remove_player(player_id)
+            room.append_event("bot_removed", player_id, {"name": char["name"]})
+            self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(start_seq))
+            return {"removed": player_id}
 
     def player_by_token(self, room_id: str, token: str) -> "dict | None":
         return self._room(room_id).player_by_token(token)
