@@ -4,8 +4,9 @@ let lastSeq = 0;
 let me = null;
 
 const el = (id) => document.getElementById(id);
-const esc = (text) => String(text ?? "").replace(/[&<>]/g,
-  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;",
+            '"': "&quot;", "'": "&#39;" }[c]));
 
 const api = async (url, options) => {
   const response = await fetch(url, {

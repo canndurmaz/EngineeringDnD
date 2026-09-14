@@ -1,4 +1,10 @@
 /* Lobby and character select. No framework, no build step. */
+/* Every interpolation into innerHTML below goes through esc(): room and player
+   names are player-chosen and the server stores them verbatim. */
+const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;",
+            '"': "&quot;", "'": "&#39;" }[c]));
+
 const api = async (url, options) => {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json" }, ...options,
@@ -41,11 +47,11 @@ if (createForm) {
     const target = document.getElementById("rooms");
     if (!rooms.length) { target.innerHTML = "<p class='roll'>No rooms yet.</p>"; return; }
     target.innerHTML = rooms.map((room) => `
-      <a class="pick" href="/room/${room.room_id}/join">
-        <span class="name">${room.name}</span>
-        <span class="role">${room.archetype.replace(/_/g, " ")} ·
+      <a class="pick" href="/room/${encodeURIComponent(room.room_id)}/join">
+        <span class="name">${esc(room.name)}</span>
+        <span class="role">${esc(room.archetype.replace(/_/g, " "))} ·
           phase ${room.phase_index + 1} of 5 · ${room.player_count} seated</span>
-        <span class="stats">${room.room_id}</span>
+        <span class="stats">${esc(room.room_id)}</span>
       </a>`).join("");
   });
 }
@@ -62,7 +68,7 @@ if (seatForm) {
     document.getElementById("roster").innerHTML =
       Object.values(state.characters).map((c) => `
         <div class="member"><div class="who">
-          <span>${c.name}</span><span class="stats">${c.class_id.replace(/_/g, " ")}</span>
+          <span>${esc(c.name)}</span><span class="stats">${esc(c.class_id.replace(/_/g, " "))}</span>
         </div></div>`).join("") || "<p class='roll'>Nobody seated yet.</p>";
     if (state.room.premise) show("genesis", state.room.premise);
     if (state.you) location.href = `/room/${roomId}`;
@@ -72,12 +78,12 @@ if (seatForm) {
 
   const drawClasses = ({ classes }) => {
     document.getElementById("classes").innerHTML = classes.map((cls) => `
-      <button type="button" class="pick" data-class="${cls.id}"
+      <button type="button" class="pick" data-class="${esc(cls.id)}"
               ${taken.has(cls.id) ? "disabled" : ""}>
-        <span class="name">${cls.name}</span>
-        <span class="stats">${cls.primary} / ${cls.secondary}</span>
-        <span class="role">${cls.role}</span>
-        <span class="role" style="margin-top:6px;display:block">${cls.blurb}</span>
+        <span class="name">${esc(cls.name)}</span>
+        <span class="stats">${esc(cls.primary)} / ${esc(cls.secondary)}</span>
+        <span class="role">${esc(cls.role)}</span>
+        <span class="role" style="margin-top:6px;display:block">${esc(cls.blurb)}</span>
       </button>`).join("");
 
     document.getElementById("classes").addEventListener("click", async (event) => {

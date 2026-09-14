@@ -18,6 +18,9 @@ from engine.rules import RuleError
 from service import GameService, ServiceError
 
 
+NAME_MAX = 40  # the client's maxlength is UX only; this is the real limit
+
+
 def session_key(room_id: str) -> str:
     return f"room:{room_id}"
 
@@ -135,6 +138,8 @@ def create_app(config: "dict | None" = None) -> Flask:
         name = (body.get("name") or "").strip()
         if not name:
             raise ServiceError("a room needs a name")
+        if len(name) > NAME_MAX:
+            raise ServiceError(f"a room name is at most {NAME_MAX} characters")
         room_id = app.service.create_room(name, body.get("archetype", ""))
         return jsonify({"room_id": room_id}), 201
 
@@ -144,6 +149,8 @@ def create_app(config: "dict | None" = None) -> Flask:
         name = (body.get("display_name") or "").strip()
         if not name:
             raise ServiceError("you need a display name")
+        if len(name) > NAME_MAX:
+            raise ServiceError(f"a display name is at most {NAME_MAX} characters")
         joined = app.service.join_room(room_id, name, body.get("class_id", ""))
         session[session_key(room_id)] = {"player_id": joined["player_id"],
                                          "token": joined["token"]}

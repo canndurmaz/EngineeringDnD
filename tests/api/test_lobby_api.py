@@ -142,3 +142,42 @@ def test_level_choice_without_a_seat_is_a_403(client):
     room_id = make_room(client)
     assert client.post(f"/api/rooms/{room_id}/level-choice",
                        json={"stat": "GRIT"}).status_code == 403
+
+
+# --- names are data, not markup ------------------------------------------------
+
+XSS = "<img src=x onerror=alert(1)>"
+
+
+def test_rooms_listing_returns_a_markup_name_as_data(client):
+    """The API is JSON: it carries the payload verbatim and the client escapes it."""
+    room_id = make_room(client, name=XSS)
+    room = next(r for r in client.get("/api/rooms").get_json()["rooms"]
+                if r["room_id"] == room_id)
+    assert room["name"] == XSS          # intact as DATA, not HTML-escaped server-side
+    # Served as JSON, so a browser never parses it as markup; escaping is the
+    # client's job at the point it builds HTML (see esc() in static/js/lobby.js).
+    response = client.get("/api/rooms")
+    assert response.headers["Content-Type"].startswith("application/json")
+
+
+def test_room_name_over_forty_characters_is_a_400(client):
+    response = client.post("/api/rooms", json={"name": "x" * 41,
+                                               "archetype": "aircraft"})
+    assert response.status_code == 400
+    assert "40" in response.get_json()["error"]
+
+
+def test_room_name_of_exactly_forty_characters_is_allowed(client):
+    response = client.post("/api/rooms", json={"name": "x" * 40,
+                                               "archetype": "aircraft"})
+    assert response.status_code == 201
+
+
+def test_display_name_over_forty_characters_is_a_400(client):
+    room_id = make_room(client)
+    response = client.post(f"/api/rooms/{room_id}/join",
+                           json={"display_name": "x" * 41,
+                                 "class_id": "computer_scientist"})
+    assert response.status_code == 400
+    assert "40" in response.get_json()["error"]
