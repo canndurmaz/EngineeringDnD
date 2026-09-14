@@ -5,6 +5,7 @@ import math
 from typing import Sequence
 
 from engine.dice import Dice
+from engine.hazard_rules import damage_floor
 
 VERBS = frozenset({
     "damage_hazard", "heal_ally", "restore_focus", "party", "stress_self",
@@ -106,6 +107,9 @@ def _do_damage_hazard(state, effect, ctx, dice, changes):
         amount *= 2
 
     amount = max(0, amount)
+    # A gate boss may refuse chip damage; the floor is applied last, after every
+    # multiplier, so it reads the hit the hazard actually takes.
+    amount = damage_floor(hazard, amount)
     hazard["severity"] = max(0, hazard["severity"] - amount)
     if hazard["severity"] == 0:
         hazard["defeated"] = True

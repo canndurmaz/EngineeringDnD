@@ -6,7 +6,7 @@
       {"name": "Silent Stakeholder", "description": "The one group that has not reviewed the spec is the one that will reject it.", "attack_type": "stress", "weakness": "COMMS"},
       {"name": "Requirement Creep", "description": "Two new shalls appeared overnight and nobody owns them.", "attack_type": "burn_budget", "weakness": "SYSTEMS"}
     ],
-    "boss": {"name": "System Requirements Review", "description": "Forty people, ninety slides, and one unanswered question about the thermal case.", "attack_type": "stress", "weakness": "SYSTEMS", "is_boss": true}
+    "boss": {"name": "System Requirements Review", "description": "Forty people, ninety slides, and one unanswered question about the thermal case.", "attack_type": "stress", "weakness": "SYSTEMS", "is_boss": true, "rule": {"id": "no_descope", "text": "No shortcuts: any move that adds Technical Debt has no effect here.", "params": {}}}
   },
   "design": {
     "normal": [
@@ -15,7 +15,7 @@
       {"name": "Mass Growth", "description": "Every allocation grew by eight percent. The total grew by thirty.", "attack_type": "burn_budget", "weakness": "RIGOR"},
       {"name": "Single-Source Component", "description": "One supplier, one lead time, one very bad day.", "attack_type": "burn_schedule", "weakness": "COMMS"}
     ],
-    "boss": {"name": "Preliminary Design Review", "description": "The architecture is defensible. Defending it takes eleven hours.", "attack_type": "burn_schedule", "weakness": "RIGOR", "is_boss": true}
+    "boss": {"name": "Preliminary Design Review", "description": "The architecture is defensible. Defending it takes eleven hours.", "attack_type": "burn_schedule", "weakness": "RIGOR", "is_boss": true, "rule": {"id": "rigor_only", "text": "Show your working: CRAFT and GRIT rolls take -4 here.", "params": {"stats": ["CRAFT", "GRIT"], "penalty": 4}}}
   },
   "prototype": {
     "normal": [
@@ -24,7 +24,7 @@
       {"name": "Harness Mis-Pinning", "description": "Pin 7 and pin 9 have been swapped since the first prototype.", "attack_type": "stress", "weakness": "CRAFT"},
       {"name": "Fixture Not Ready", "description": "The part exists. Nothing can hold it.", "attack_type": "burn_schedule", "weakness": "GRIT"}
     ],
-    "boss": {"name": "First Article Inspection", "description": "Every dimension, every finish, every one of them measured in front of the customer.", "attack_type": "stress", "weakness": "CRAFT", "is_boss": true}
+    "boss": {"name": "First Article Inspection", "description": "Every dimension, every finish, every one of them measured in front of the customer.", "attack_type": "stress", "weakness": "CRAFT", "is_boss": true, "rule": {"id": "hands_on", "text": "Hands on the hardware: RIGOR and SYSTEMS rolls take -4 here.", "params": {"stats": ["RIGOR", "SYSTEMS"], "penalty": 4}}}
   },
   "integration": {
     "normal": [
@@ -33,7 +33,7 @@
       {"name": "Control Loop Instability", "description": "The gain that worked on the bench oscillates on the vehicle.", "attack_type": "stress", "weakness": "RIGOR"},
       {"name": "EMC Emissions Failure", "description": "Twelve dB over the limit at 140 MHz, from a cable nobody documented.", "attack_type": "burn_budget", "weakness": "CRAFT"}
     ],
-    "boss": {"name": "Test Readiness Review", "description": "You must prove you are ready to be tested. That is two arguments, not one.", "attack_type": "debt", "weakness": "COMMS", "is_boss": true}
+    "boss": {"name": "Test Readiness Review", "description": "You must prove you are ready to be tested. That is two arguments, not one.", "attack_type": "debt", "weakness": "COMMS", "is_boss": true, "rule": {"id": "escalating", "text": "The queue grows: this review's difficulty rises by 1 each round it survives.", "params": {"per_round": 1}}}
   },
   "qualification": {
     "normal": [
@@ -42,6 +42,6 @@
       {"name": "Documentation Gap", "description": "The unit passes. The evidence that it passes does not exist yet.", "attack_type": "burn_schedule", "weakness": "COMMS"},
       {"name": "Late Regulatory Change", "description": "The standard was revised in March. You have been building to the 2019 edition.", "attack_type": "debt", "weakness": "SYSTEMS"}
     ],
-    "boss": {"name": "Qualification Test Campaign", "description": "Everything, at once, to the limits, with the customer watching.", "attack_type": "stress", "weakness": "GRIT", "is_boss": true}
+    "boss": {"name": "Qualification Test Campaign", "description": "Everything, at once, to the limits, with the customer watching.", "attack_type": "stress", "weakness": "GRIT", "is_boss": true, "rule": {"id": "focused_fire", "text": "Chip damage bounces off: any hit under 8 is reduced to 1.", "params": {"threshold": 8, "floor": 1}}}
   }
 }

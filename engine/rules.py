@@ -7,6 +7,7 @@ from engine.classes import Ability
 from engine.dice import Dice
 from engine.effects import (active_conditions, add_condition, apply_effects,
                             condition_total)
+from engine.hazard_rules import escalate, neutralises, roll_penalty
 
 
 class RuleError(Exception):
@@ -114,6 +115,10 @@ def resolve_action(state, actor_id: str, ability: Ability, dice: Dice,
     if hazard and "weakness" in hazard.get("revealed", []) \
             and hazard.get("weakness") == stat_used:
         bonus += 2
+    # A gate boss that punishes a stat takes it off the roll rather than adding
+    # it to the DC: the player sees the -4 on their own line, next to the stat
+    # that earned it, instead of a difficulty that moved for no visible reason.
+    bonus += roll_penalty(hazard, stat_used)
     dc = effective_dc(state, ability, actor_id)
 
     rerolled = False
@@ -148,7 +153,14 @@ def resolve_action(state, actor_id: str, ability: Ability, dice: Dice,
            "mods": {k: stat_mod(v) for k, v in char["stats"].items()},
            "crit": outcome == "crit", "ability": ability}
     effects = ability.on_success if outcome in ("success", "crit") else ability.on_fail
-    changes = apply_effects(state, list(effects), ctx, dice)
+    if neutralises(hazard, ability):
+        # The Focus and the turn are already spent; this boss simply refuses to
+        # be bought off with Technical Debt, so nothing the ability promised
+        # happens -- including the debt itself.
+        changes = [{"kind": "rule_blocked", "rule": hazard["rule"]["id"],
+                    "hazard_id": hazard["id"], "ability_id": ability.id}]
+    else:
+        changes = apply_effects(state, list(effects), ctx, dice)
 
     # Consume single-use attack bonuses now that the roll is spent.
     for c in list(active_conditions(state, "next_attack_bonus", actor_id)):
@@ -222,6 +234,23 @@ def hazard_attack(state, dice: Dice, forced_target: "str | None" = None) -> dict
                 "value": state["party"]["tech_debt"]}
 
     raise RuleError(f"unknown hazard attack type: {attack!r}")
+
+
+def end_of_round(state) -> "dict | None":
+    """The rules a gate boss applies for having survived another round.
+
+    Called once per completed round, alongside the hazard's attack. Separate
+    from hazard_attack because a fumble also triggers an attack, and fumbling
+    twice in a round must not age the boss twice.
+    """
+    hazard = _hazard(state)
+    if hazard is None:
+        return None
+    step = escalate(hazard)
+    if not step:
+        return None
+    return {"kind": "rule_escalated", "rule": hazard["rule"]["id"],
+            "hazard_id": hazard["id"], "amount": step, "dc": hazard["dc"]}
 
 
 def advance_turn(state) -> bool:

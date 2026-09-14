@@ -41,7 +41,7 @@ def _hazard_from_template(template: dict, phase_index: int, ordinal: int,
     else:
         max_severity = _NORMAL_SEVERITY_BASE + _NORMAL_SEVERITY_STEP * phase_index
         dc = _NORMAL_DC_BASE + phase_index
-    return {
+    hazard = {
         "id": f"h{phase_index}_{ordinal}",
         "phase_index": phase_index,
         "ordinal": ordinal,
@@ -60,6 +60,12 @@ def _hazard_from_template(template: dict, phase_index: int, ordinal: int,
         # has nothing to light up, which is what an old room looks like.
         "subsystem": subsystem,
     }
+    # Spec 2.6: a gate boss carries one special rule. It is template data, kept
+    # off the hazard entirely when there is none -- same rule as `subsystem`, so
+    # an ordinary problem's state has exactly the shape it always had.
+    if template.get("rule"):
+        hazard["rule"] = template["rule"]
+    return hazard
 
 
 def _deal_subsystems(dice: Dice, subsystem_ids: list, count: int) -> list:
