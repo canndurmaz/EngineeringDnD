@@ -1,8 +1,10 @@
 """Orchestration: per-room locks, and the seam between pure engine and storage."""
 from __future__ import annotations
 
+import os
 import secrets
 import threading
+import time
 
 import appearance as appearance_lib
 from engine.character import new_character_detailed
@@ -21,6 +23,24 @@ _ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no look-alike characters
 # A table seats this many engineers, human or otherwise. There are more classes
 # than seats on purpose: filling a room with bots should still leave choices.
 MAX_SEATS = 6
+
+#: How long the table will wait for the DM before it gives up and plays on. The
+#: gate exists so the story cannot fall behind the game; the deadline exists so
+#: a wedged model cannot freeze a table forever.
+DEFAULT_DM_WAIT = 20.0
+
+
+def dm_wait_seconds() -> float:
+    """CP_DM_WAIT, in seconds. A malformed value falls back to the default
+    rather than stopping the game from starting."""
+    raw = os.environ.get("CP_DM_WAIT")
+    if raw is None or raw.strip() == "":
+        return DEFAULT_DM_WAIT
+    try:
+        value = float(raw.strip())
+    except (TypeError, ValueError):
+        return DEFAULT_DM_WAIT
+    return max(0.0, value)
 
 
 class ServiceError(Exception):
@@ -44,6 +64,9 @@ class GameService:
         # Phase interludes staged under the room lock, submitted once it is
         # released; see _flush_phase_jobs.
         self._pending_phase: dict = {}
+        # room_id -> {"event_seq": int, "deadline": monotonic}. While a room has
+        # an entry here the table is waiting on the DM; see _gate_blocking.
+        self._dm_gate: dict = {}
 
     # --- plumbing ----------------------------------------------------------
 
@@ -243,6 +266,70 @@ class GameService:
             raise ServiceError(f"unknown stat: {stat}")
         self._level_choices.setdefault(room_id, {})[player_id] = stat
 
+    # --- the DM gate --------------------------------------------------------
+
+    # The whole table waits for the DM. A client-side wait would let two
+    # browsers disagree about whether the game is paused, so the gate lives
+    # here, beside the lock that already serialises every other decision about
+    # a room. Three things open it again: the narration lands, somebody skips,
+    # or the deadline passes. Nothing ever holds the lock while waiting -- the
+    # flag is set and the caller returns.
+
+    def _gate_blocking(self, room_id: str, now: "float | None" = None) -> "dict | None":
+        """The live gate for this room, or None. Expires a stale one in passing.
+
+        Call with the room lock held: it mutates _dm_gate.
+        """
+        gate = self._dm_gate.get(room_id)
+        if gate is None:
+            return None
+        now = time.monotonic() if now is None else now
+        if now >= gate["deadline"]:
+            self._dm_gate.pop(room_id, None)
+            return None
+        return gate
+
+    def _require_dm_done(self, room_id: str) -> None:
+        if self._gate_blocking(room_id) is not None:
+            raise ServiceError("the DM is still writing")
+
+    def dm_gate(self, room_id: str) -> dict:
+        """What the table should be told: whether it is waiting, and on what."""
+        with self._lock(room_id):
+            gate = self._gate_blocking(room_id)
+        if gate is None:
+            return {"waiting": False, "event_seq": None}
+        return {"waiting": True, "event_seq": gate["event_seq"]}
+
+    def clear_dm_gate(self, room_id: str, event_seq: "int | None" = None) -> None:
+        """Open the gate. Called by the narration worker on every path it can
+        finish on -- model, template fallback, timeout -- because a gate that
+        outlives a failed narration is a hung table.
+
+        A stale clear (the deadline already fired and the *next* turn opened a
+        new gate) must not open the new one, so the event_seq must match.
+        """
+        with self._lock(room_id):
+            gate = self._dm_gate.get(room_id)
+            if gate is None:
+                return
+            if event_seq is not None and gate["event_seq"] != event_seq:
+                return
+            self._dm_gate.pop(room_id, None)
+
+    def skip_dm(self, room_id: str) -> dict:
+        """Stop waiting, now, for everybody. The narration is not cancelled: it
+        still arrives later and renders in its own place in the log."""
+        with self._lock(room_id):
+            room = self._room(room_id)
+            gate = self._gate_blocking(room_id)
+            event_seq = gate["event_seq"] if gate else None
+            self._dm_gate.pop(room_id, None)
+            start_seq = room.latest_seq()
+            room.append_event("dm_skipped", None, {"event_seq": event_seq})
+            self._publish(room_id, room.events_since(start_seq))
+        return {"skipped": True, "event_seq": event_seq}
+
     # --- the turn ----------------------------------------------------------
 
     def _stat_choices(self, room_id: str, state: dict) -> dict:
@@ -308,6 +395,7 @@ class GameService:
         with self._lock(room_id):
             room = self._room(room_id)
             state = room.load_state()
+            self._require_dm_done(room_id)
             self._require_running(state)
             dice = self._dice(state)
             result = resolve_action(state, player_id, ability, dice, target_id)
@@ -339,6 +427,13 @@ class GameService:
             room.save_state(state)              # commit BEFORE queueing narration
             self._reindex(room_id, state)
             self._publish(room_id, room.events_since(action_seq - 1))
+            if self.queue is not None:
+                # This action queued a narration, so the table now owes it a
+                # pause. With no queue nothing will ever arrive to open the
+                # gate again, so no gate is set.
+                self._dm_gate[room_id] = {
+                    "event_seq": action_seq,
+                    "deadline": time.monotonic() + dm_wait_seconds()}
 
         self._flush_phase_jobs(room_id)
         self._enqueue_narration(room_id, player_id, action_seq, state, ability, result)
@@ -351,6 +446,7 @@ class GameService:
         with self._lock(room_id):
             room = self._room(room_id)
             state = room.load_state()
+            self._require_dm_done(room_id)
             self._require_running(state)
             if state["turn"]["order"][state["turn"]["turn_index"]] != player_id:
                 raise RuleError("It is not your turn.")

@@ -111,6 +111,12 @@ function renderRail(state) {
     `${state.phase.name} · ${state.phase.index + 1}/${state.phase.count}`;
 }
 
+/* The table waits for the DM, and the server is the one that decides so -- two
+   browsers must never disagree about whether the game is paused. /state carries
+   the gate; the client only reads it. */
+const dmWaiting = (state) => !!(state && state.dm_wait && state.dm_wait.waiting);
+const DM_WRITING_WHY = "the DM is writing";
+
 /* A move can only land when the room is running, the player holds a seat, and
    the turn is theirs. The buttons say the same thing the server would. */
 const canAct = (state) =>
@@ -122,11 +128,14 @@ function renderAbilities(state) {
   const lobby = state.room.status === "lobby";
   const running = state.room.status === "active";
   const mine = canAct(state);
-  el("turn-hint").textContent = !me ? "you are watching"
+  const gated = dmWaiting(state);
+  el("turn-hint").textContent = gated ? DM_WRITING_WHY
+    : !me ? "you are watching"
     : lobby ? "the programme has not started"
     : !running ? "the programme has ended"
     : mine ? "it is your turn" : "waiting for another engineer";
   el("pass").disabled = !mine;
+  if (gated) el("pass").disabled = true;      // nobody plays past the DM
   if (!me) {
     el("abilities").innerHTML =
       `<p class="watching">You are watching this table. Take a seat on the
@@ -136,7 +145,8 @@ function renderAbilities(state) {
 
   el("abilities").innerHTML = me.abilities.map((a) => {
     let why = "";
-    if (lobby) why = "the programme hasn't started";
+    if (gated) why = DM_WRITING_WHY;
+    else if (lobby) why = "the programme hasn't started";
     else if (!running) why = "the programme has ended";
     else if (!mine) why = "not your turn";
     else if (me.focus < a.focus_cost) why = `needs ${a.focus_cost} focus, you have ${me.focus}`;
@@ -192,7 +202,7 @@ function renderAnnunciator(state) {
   const active = activeId ? state.characters[activeId] : null;
   const seated = (state.party_size || {}).seated ?? 0;
 
-  let lamp = "other", word = "", say = "", offerStart = false;
+  let lamp = "other", word = "", say = "", offerStart = false, offerSkip = false;
 
   if (status === "lobby") {
     lamp = "lobby";
@@ -213,6 +223,11 @@ function renderAnnunciator(state) {
     lamp = "lost";
     word = "over";
     say = ENDED[status] || "The programme is cancelled.";
+  } else if (dmWaiting(state)) {
+    lamp = "writing";
+    word = "dm writing";
+    say = "The table is waiting on the DM. Skip if you would rather play on.";
+    offerSkip = true;
   } else if (narrationOutstanding()) {
     lamp = "writing";
     word = "dm writing";
@@ -233,7 +248,10 @@ function renderAnnunciator(state) {
   el("ann-word").textContent = word;        // textContent, never innerHTML
   el("ann-say").textContent = say;
   el("ann-start").hidden = !offerStart;
-  if (!offerStart) el("ann-error").textContent = "";
+  /* Only a seated engineer may skip -- /skip-dm answers 403 to anyone else, so
+     a spectator is shown the wait without a control they cannot use. */
+  el("ann-skip").hidden = !(offerSkip && !!state.you);
+  if (!offerStart && !offerSkip) el("ann-error").textContent = "";
 }
 
 /* --- the log -------------------------------------------------------------- */
@@ -288,6 +306,7 @@ const LABELS = {
     ? `${esc(e.name)} boots up as ${esc(className(e.class_id))}.`
     : "A bot takes a seat.",
   bot_removed: (e) => e.name ? `${esc(e.name)} powers down.` : "A bot stands up.",
+  dm_skipped: () => "The table moves on without the DM.",
   passed: (e) => {
     const who = actorName(e);
     return who ? `${esc(who)} passes.` : "Turn passed.";
@@ -405,7 +424,7 @@ async function connect() {
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
    "campaign_updated", "passed", "room_created", "interlude",
-   "bot_added", "bot_removed"].forEach((kind) => {
+   "bot_added", "bot_removed", "dm_skipped"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);
       renderEvent(event);
@@ -458,6 +477,16 @@ el("ann-start").addEventListener("click", async (event) => {
   button.disabled = true;
   el("ann-error").textContent = "";
   try { await api(`/api/rooms/${ROOM}/start`, { method: "POST" }); }
+  catch (error) { el("ann-error").textContent = error.message; }
+  button.disabled = false;
+  await refresh();
+});
+
+el("ann-skip").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  el("ann-error").textContent = "";
+  try { await api(`/api/rooms/${ROOM}/skip-dm`, { method: "POST" }); }
   catch (error) { el("ann-error").textContent = error.message; }
   button.disabled = false;
   await refresh();

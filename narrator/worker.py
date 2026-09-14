@@ -142,18 +142,35 @@ class NarrationWorker:
     def _handle_turn(self, job: dict) -> None:
         room_id, event_seq = job["room_id"], job.get("event_seq")
         room = self.service._room(room_id)
-        if event_seq is not None:
-            room.update_narration(event_seq, "streaming", "", "")
-        if self._supports_streaming():
-            text, source = self._generate_streaming(job)
-        else:
-            text, source = self._generate(job)
-        if event_seq is not None:
-            room.update_narration(event_seq, "done", text, source)
-        payload = {"event_seq": event_seq, "text": text, "source": source,
-                   "job_kind": job.get("kind", "turn")}
-        seq = room.append_event("narration", None, payload)
-        self.broker.publish(room_id, {"seq": seq, "kind": "narration", **payload})
+        try:
+            if event_seq is not None:
+                room.update_narration(event_seq, "streaming", "", "")
+            if self._supports_streaming():
+                text, source = self._generate_streaming(job)
+            else:
+                text, source = self._generate(job)
+            if event_seq is not None:
+                room.update_narration(event_seq, "done", text, source)
+            payload = {"event_seq": event_seq, "text": text, "source": source,
+                       "job_kind": job.get("kind", "turn")}
+            seq = room.append_event("narration", None, payload)
+            self.broker.publish(room_id, {"seq": seq, "kind": "narration",
+                                          **payload})
+        finally:
+            # Every way out of this method opens the gate: the model answered,
+            # the model raised, the model timed out, the filter emptied the
+            # output, or the database itself failed. A gate that outlives a
+            # narration is a table nobody can play.
+            self._release(room_id, event_seq)
+
+    def _release(self, room_id: str, event_seq) -> None:
+        clear = getattr(self.service, "clear_dm_gate", None)
+        if not callable(clear):
+            return
+        try:
+            clear(room_id, event_seq)
+        except Exception:
+            log.exception("could not clear the DM gate for room %s", room_id)
 
     def _handle_premise(self, job: dict) -> None:
         text, source = self._generate(job)

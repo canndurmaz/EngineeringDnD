@@ -270,6 +270,15 @@ def create_app(config: "dict | None" = None) -> Flask:
             return jsonify({"error": "you are not seated in this room"}), 403
         return jsonify(app.service.remove_bot(room_id, player_id))
 
+    @app.post("/api/rooms/<room_id>/skip-dm")
+    def api_skip_dm(room_id):
+        # Same guard as /start: stopping the table's wait is a decision for the
+        # people sitting at it. The narration is not cancelled -- it lands later
+        # and renders in its own place in the log.
+        if not require_seat(room_id):
+            return jsonify({"error": "you are not seated in this room"}), 403
+        return jsonify(app.service.skip_dm(room_id))
+
     @app.post("/api/rooms/<room_id>/level-choice")
     def api_level_choice(room_id):
         found = require_seat(room_id)
@@ -313,6 +322,7 @@ def create_app(config: "dict | None" = None) -> Flask:
                       "count": len(PHASES)},
             "you": you,
             "latest_seq": app.service._room(room_id).latest_seq(),
+            "dm_wait": app.service.dm_gate(room_id),
             "narrator": app.config.get("NARRATOR_NAME", "template"),
         })
 

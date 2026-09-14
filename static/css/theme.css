@@ -204,6 +204,17 @@ input, select {
 }
 #ann-start:hover:not(:disabled) { background: var(--panel); }
 #ann-start:disabled { color: var(--ink-dim); border-color: var(--line); background: transparent; }
+/* The skip is the same quiet control, offered only while the band is waiting
+   on the DM: a way out of the wait, not a second loud call to action. */
+#ann-skip {
+  flex: 0 0 auto;
+  background: transparent; color: var(--lamp, var(--cyan));
+  border: 1px solid var(--lamp, var(--line));
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  letter-spacing: .08em; padding: 6px 12px;
+}
+#ann-skip:hover:not(:disabled) { background: var(--panel); }
+#ann-skip:disabled { color: var(--ink-dim); border-color: var(--line); background: transparent; }
 #ann-error { flex: 1 0 100%; margin: 0; font-size: 13px; }
 #ann-error:empty { display: none; }
 
@@ -220,7 +231,7 @@ input, select {
   .annunciator { align-items: flex-start; gap: 10px; }
   .ann-text { flex-direction: column; gap: 2px; }
   .ann-say::before { content: none; }
-  #ann-start { width: 100%; }
+  #ann-start, #ann-skip { width: 100%; }
 }
 
 /* Someone with no seat: the board and the log, and a line saying so. */

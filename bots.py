@@ -284,6 +284,11 @@ class BotRunner:
             return []
 
     def _tick(self, room_id: str, now: float) -> int:
+        # The whole table waits for the DM, and a bot is part of the table. It
+        # simply declines this tick and is picked up by the next one at the
+        # usual interval -- no busy loop, no second clock.
+        if self._gated(room_id):
+            return 0
         state = self.service.snapshot(room_id)
         if state["room"]["status"] != "active":
             self._waiting.pop(room_id, None)
@@ -311,6 +316,16 @@ class BotRunner:
 
         self._play(room_id, player_id, state)
         return 1
+
+    def _gated(self, room_id: str) -> bool:
+        gate = getattr(self.service, "dm_gate", None)
+        if not callable(gate):
+            return False
+        try:
+            return bool(gate(room_id).get("waiting"))
+        except Exception:
+            log.exception("bot runner could not read the DM gate for %s", room_id)
+            return False
 
     def _play(self, room_id: str, player_id: str, state: dict) -> None:
         choice = None

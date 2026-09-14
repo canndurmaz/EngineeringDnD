@@ -39,6 +39,11 @@ def test_a_room_can_be_created_joined_started_and_played(rig):
                                json={"ability_id": "unit_test_barrage"})
         if response.status_code != 200:
             client.post(f"/api/rooms/{room_id}/end-turn")
+        # The table waits for the DM, so the DM has to actually write: without
+        # draining the queue here every turn after the first is refused and
+        # this stops being a test of a whole game.
+        while worker.run_once(timeout=0.05):
+            pass
 
     events = ada.get(f"/api/rooms/{room_id}/stream?once=1&since=0").get_data(as_text=True)
     assert "event: action" in events
