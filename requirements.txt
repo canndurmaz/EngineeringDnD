@@ -2,3 +2,4 @@ Flask>=3.0
 segno>=1.6
 huggingface_hub>=0.24
 pytest>=8.0
+python-avatars>=1.4.1
