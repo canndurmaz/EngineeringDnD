@@ -1,13 +1,15 @@
 """Flask application: HTML pages, JSON API, and the SSE event stream."""
 from __future__ import annotations
 
+import io
 import json
 import queue
 import secrets
 from pathlib import Path
 
-from flask import (Flask, Response, jsonify, render_template, request, session,
-                   stream_with_context)
+import segno
+from flask import (Flask, Response, abort, jsonify, render_template, request,
+                   session, stream_with_context, url_for)
 
 from broker import EventBroker
 from engine.classes import STATS, load_catalog
@@ -254,6 +256,43 @@ def create_app(config: "dict | None" = None) -> Flask:
                         mimetype="text/event-stream",
                         headers={"Cache-Control": "no-cache",
                                  "X-Accel-Buffering": "no"})
+
+    # --- pages -------------------------------------------------------------
+
+    def _room_or_404(room_id):
+        try:
+            return app.service.snapshot(room_id)
+        except ServiceError:
+            abort(404)
+
+    @app.get("/")
+    def page_lobby():
+        return render_template("lobby.html", archetypes=app.archetypes,
+                               narrator_name=app.config.get("NARRATOR_NAME",
+                                                            "template"))
+
+    @app.get("/room/<room_id>/join")
+    def page_join(room_id):
+        state = _room_or_404(room_id)
+        return render_template("join.html", room_id=room_id, room=state["room"],
+                               narrator_name=app.config.get("NARRATOR_NAME",
+                                                            "template"))
+
+    @app.get("/room/<room_id>")
+    def page_table(room_id):
+        state = _room_or_404(room_id)
+        return render_template("table.html", room_id=room_id, room=state["room"],
+                               narrator_name=app.config.get("NARRATOR_NAME",
+                                                            "template"))
+
+    @app.get("/room/<room_id>/qr.svg")
+    def room_qr(room_id):
+        _room_or_404(room_id)
+        join_url = url_for("page_join", room_id=room_id, _external=True)
+        buffer = io.BytesIO()
+        segno.make(join_url, error="m").save(buffer, kind="svg", scale=4,
+                                             dark="#0f141a", light="#ffffff")
+        return Response(buffer.getvalue(), mimetype="image/svg+xml")
 
     return app
 

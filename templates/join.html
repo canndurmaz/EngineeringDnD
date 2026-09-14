@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block subtitle %}<span class="num">{{ room.name }} · {{ room_id }}</span>{% endblock %}
+{% block content %}
+<div class="table-grid">
+  <section class="panel">
+    <h2>Party</h2>
+    <div id="roster"></div>
+    <p id="genesis" class="roll">The DM is drafting your programme…</p>
+    <img src="{{ url_for('room_qr', room_id=room_id) }}" alt="QR code to join this room"
+         width="150" height="150" style="margin-top:14px;background:#fff;padding:6px;border-radius:4px">
+  </section>
+
+  <section class="panel" style="grid-column: span 2">
+    <h2>Choose your discipline</h2>
+    <form id="seat">
+      <input id="display-name" placeholder="Your name" required maxlength="24">
+      <p id="join-error" class="debt" role="alert"></p>
+      <div class="card-grid" id="classes" style="margin-top:14px"></div>
+    </form>
+    <button id="start" class="ghost" style="margin-top:18px">Start the programme</button>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>window.ROOM_ID = {{ room_id | tojson }};</script>
+<script src="{{ url_for('static', filename='js/lobby.js') }}"></script>
+{% endblock %}

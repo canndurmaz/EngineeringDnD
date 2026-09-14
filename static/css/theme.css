@@ -1,0 +1,149 @@
+/* Critical Path — engineering review room, not a tavern. */
+:root {
+  --ground:   #0f141a;
+  --panel:    #161d26;
+  --panel-2:  #1d2632;
+  --line:     #2b3644;
+  --ink:      #dfe6ee;
+  --ink-dim:  #8b98a8;
+  --cyan:     #4fd6e8;
+  --amber:    #f2b34b;
+  --red:      #e5624d;
+  --green:    #62c98a;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background-color: var(--ground);
+  /* faint drafting grid */
+  background-image:
+    linear-gradient(rgba(79,214,232,.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(79,214,232,.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+a { color: var(--cyan); }
+
+header.bar {
+  display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+  padding: 14px 20px; border-bottom: 1px solid var(--line);
+  background: rgba(15,20,26,.9); position: sticky; top: 0; z-index: 5;
+}
+header.bar h1 {
+  margin: 0; font-size: 16px; letter-spacing: .16em; text-transform: uppercase;
+  font-weight: 600;
+}
+.dm-badge {
+  margin-left: auto; font-family: var(--mono); font-size: 11px;
+  color: var(--ink-dim); border: 1px solid var(--line);
+  padding: 2px 8px; border-radius: 3px;
+}
+
+main { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+.panel {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; padding: 16px;
+}
+.panel h2 {
+  margin: 0 0 12px; font-size: 11px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--ink-dim); font-weight: 600;
+}
+
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+button, .btn {
+  font: inherit; cursor: pointer; color: var(--ground);
+  background: var(--cyan); border: 0; border-radius: 4px;
+  padding: 9px 16px; font-weight: 600;
+}
+button:disabled { background: var(--panel-2); color: var(--ink-dim); cursor: not-allowed; }
+button.ghost { background: transparent; color: var(--cyan); border: 1px solid var(--line); }
+
+input, select {
+  font: inherit; background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px; padding: 9px 11px; width: 100%;
+}
+
+/* --- bars ---------------------------------------------------------------- */
+.bar-track { height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; transition: width .35s ease; }
+.bar-fill.stamina { background: var(--green); }
+.bar-fill.focus   { background: var(--cyan); }
+.bar-fill.severity{ background: var(--amber); }
+
+/* --- layout -------------------------------------------------------------- */
+.table-grid { display: grid; grid-template-columns: 240px 1fr 280px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .table-grid { grid-template-columns: 1fr; } }
+
+.card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+
+/* --- class / room cards -------------------------------------------------- */
+.pick {
+  text-align: left; background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 6px; padding: 14px;
+  display: block; width: 100%; font-weight: 400;
+}
+.pick:hover:not(:disabled) { border-color: var(--cyan); }
+.pick:disabled { opacity: .4; }
+.pick .name { font-weight: 600; display: block; margin-bottom: 2px; }
+.pick .stats { font-family: var(--mono); font-size: 12px; color: var(--cyan); }
+.pick .role  { font-size: 13px; color: var(--ink-dim); }
+
+/* --- party roster -------------------------------------------------------- */
+.member { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.member:last-child { border-bottom: 0; }
+.member.active { box-shadow: inset 3px 0 0 var(--amber); padding-left: 9px; }
+.member.down { opacity: .45; }
+.member .who { display: flex; justify-content: space-between; gap: 8px; }
+
+/* --- resource rail ------------------------------------------------------- */
+.rail-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--line); }
+.rail-row:last-child { border-bottom: 0; }
+.rail-row .v { font-family: var(--mono); }
+.debt { color: var(--red); }
+.debt-meter { height: 4px; background: var(--red); border-radius: 2px; transition: width .4s ease; }
+
+/* --- story log ----------------------------------------------------------- */
+#log { max-height: 58vh; overflow-y: auto; }
+.entry { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.entry:last-child { border-bottom: 0; }
+.entry .prose { margin: 6px 0 0; }
+.entry.pending .prose { color: var(--ink-dim); font-style: italic; }
+
+.roll {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+  border-left: 2px solid var(--line); padding-left: 10px;
+}
+.roll .nat { color: var(--ink); font-weight: 600; }
+.roll.crit   .nat { color: var(--green); }
+.roll.fumble .nat { color: var(--red); }
+
+@keyframes pulse-green { from { background: rgba(98,201,138,.22); } to { background: transparent; } }
+@keyframes pulse-red   { from { background: rgba(229,98,77,.22);  } to { background: transparent; } }
+.flash-crit   { animation: pulse-green 1.1s ease-out; }
+.flash-fumble { animation: pulse-red   1.1s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .flash-crit, .flash-fumble { animation: none; }
+  .bar-fill, .debt-meter { transition: none; }
+}
+
+/* --- abilities ----------------------------------------------------------- */
+.abilities { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.ability { text-align: left; background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); padding: 10px; }
+.ability:not(:disabled):hover { border-color: var(--cyan); }
+.ability .cost { font-family: var(--mono); font-size: 11px; color: var(--amber); }
+.ability .why  { font-size: 11px; color: var(--ink-dim); display: block; margin-top: 4px; }
+
+.phase-track { display: flex; gap: 4px; margin-top: 8px; }
+.phase-track i { flex: 1; height: 4px; background: var(--panel-2); border-radius: 2px; }
+.phase-track i.done { background: var(--cyan); }
+.phase-track i.now  { background: var(--amber); }
