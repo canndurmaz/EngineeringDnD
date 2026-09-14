@@ -69,7 +69,12 @@ def create_app(config: "dict | None" = None) -> Flask:
     app.narration_queue = app.config.get("NARRATION")
     if app.narration_queue is None and not app.config.get("TESTING"):
         app.narration_queue = NarrationQueue()
-        app.narrator = TemplateNarrator()        # Task 16 swaps in the real model
+        from narrator.llm import LlamaNarrator
+        model_path = app.config.get(
+            "MODEL_PATH", "models/Llama-3.2-1B-Instruct-Q4_K_M.gguf")
+        llama = LlamaNarrator(model_path)
+        app.narrator = llama if llama.available else TemplateNarrator()
+        app.config["NARRATOR_NAME"] = app.narrator.name
         app.worker = NarrationWorker(app.narration_queue, app.narrator,
                                      app.service, app.broker)
         app.worker.start()
@@ -187,6 +192,7 @@ def create_app(config: "dict | None" = None) -> Flask:
                       "count": len(PHASES)},
             "you": you,
             "latest_seq": app.service._room(room_id).latest_seq(),
+            "narrator": app.config.get("NARRATOR_NAME", "template"),
         })
 
     # --- the turn ----------------------------------------------------------
