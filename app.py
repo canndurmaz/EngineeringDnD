@@ -253,7 +253,15 @@ def create_app(config: "dict | None" = None) -> Flask:
     def api_stream(room_id):
         app.service.snapshot(room_id)          # raises ServiceError -> 400 if unknown
         header = request.headers.get("Last-Event-ID")
-        since = int(header or request.args.get("since") or 0)
+        try:
+            since = int(header or request.args.get("since") or 0)
+        except (TypeError, ValueError):
+            # A malformed header (or ?since=) is a client bug, not a server error:
+            # fall back to ?since=, then to a full replay from zero.
+            try:
+                since = int(request.args.get("since") or 0)
+            except (TypeError, ValueError):
+                since = 0
         once = request.args.get("once") == "1"
 
         def generate():

@@ -110,3 +110,30 @@ def test_a_narration_chunk_frame_has_no_id_line():
     assert "id:" not in frame
     assert frame.startswith("event: narration_chunk\n")
     assert json.loads(frame.splitlines()[1][len("data: "):])["seq"] == 7
+
+
+def test_a_malformed_last_event_id_falls_back_instead_of_500ing(client):
+    room_id = make_room(client)
+    client.post(f"/api/rooms/{room_id}/join",
+                json={"display_name": "Ada", "class_id": "computer_scientist"})
+    response = client.get(f"/api/rooms/{room_id}/stream?once=1",
+                          headers={"Last-Event-ID": "not-a-number"})
+    assert response.status_code == 200
+    assert "event: player_joined" in response.get_data(as_text=True)
+
+
+def test_a_malformed_last_event_id_falls_back_to_since(client):
+    room_id = make_room(client)
+    client.post(f"/api/rooms/{room_id}/join",
+                json={"display_name": "Ada", "class_id": "computer_scientist"})
+    latest = client.get(f"/api/rooms/{room_id}/state").get_json()["latest_seq"]
+    body = client.get(f"/api/rooms/{room_id}/stream?once=1&since={latest}",
+                      headers={"Last-Event-ID": "🙂"}).get_data(as_text=True)
+    assert "event: player_joined" not in body
+
+
+def test_a_malformed_since_parameter_replays_from_zero(client):
+    room_id = make_room(client)
+    response = client.get(f"/api/rooms/{room_id}/stream?once=1&since=abc")
+    assert response.status_code == 200
+    assert "event: room_created" in response.get_data(as_text=True)
