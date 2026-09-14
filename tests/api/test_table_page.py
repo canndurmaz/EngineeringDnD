@@ -47,3 +47,36 @@ def test_game_script_subscribes_to_the_phase_interlude(client):
     body = client.get("/static/js/game.js").get_data(as_text=True)
     assert '"interlude"' in body
     assert 'event.kind === "interlude"' in body
+
+
+# --- "+1 to a stat of choice" on level-up ----------------------------------
+
+def test_table_has_a_level_choice_row(client):
+    room_id = make_room(client)
+    assert 'id="level-choice"' in client.get(f"/room/{room_id}").get_data(as_text=True)
+
+
+def test_game_script_posts_the_level_choice(client):
+    body = client.get("/static/js/game.js").get_data(as_text=True)
+    assert "/level-choice" in body
+    assert '"stat": stat' in body or "{ stat }" in body
+
+
+def test_game_script_reads_the_stat_names_from_the_api(client):
+    """The six stats are served by /api/classes; the client must not keep its
+    own copy that can drift from engine.classes.STATS."""
+    body = client.get("/static/js/game.js").get_data(as_text=True)
+    assert "/api/classes" in body
+    stats = client.get("/api/classes").get_json()["stats"]
+    for stat in stats:
+        assert f'"{stat}"' not in body, f"{stat} is hard-coded in game.js"
+
+
+def test_the_level_choice_buttons_escape_their_labels(client):
+    body = client.get("/static/js/game.js").get_data(as_text=True)
+    assert 'data-stat="${esc(stat)}"' in body
+    assert "esc(current)" in body
+
+
+def test_api_classes_still_serves_six_stats(client):
+    assert len(client.get("/api/classes").get_json()["stats"]) == 6

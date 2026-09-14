@@ -186,3 +186,14 @@ button.small { padding: 6px 12px; font-size: 12px; }
 .member .who .avatar { margin-right: 8px; }
 .member-row { display: flex; gap: 9px; align-items: center; }
 .member-row .lines { flex: 1; min-width: 0; }
+
+/* The "+1 to a stat of choice" picker in the party panel. */
+.level-choice:empty { display: none; }
+.level-choice { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.level-choice .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.level-choice .stat {
+  background: transparent; color: var(--ink-dim); border: 1px solid var(--line);
+  padding: 5px 9px; font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+}
+.level-choice .stat[aria-pressed="true"] { color: var(--ground); background: var(--cyan); border-color: var(--cyan); }
+.level-choice .stat:disabled { cursor: progress; opacity: 0.6; }

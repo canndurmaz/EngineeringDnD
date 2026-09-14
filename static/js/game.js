@@ -2,6 +2,11 @@
 const ROOM = window.ROOM_ID;
 let lastSeq = 0;
 let me = null;
+/* The six stat names and each class's primary, both straight from
+   /api/classes -- the client invents neither. */
+let STATS = [];
+let PRIMARY = {};
+let levelStat = null;          // what this player has chosen, if anything
 
 const el = (id) => document.getElementById(id);
 const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
@@ -110,6 +115,24 @@ function renderAbilities(state) {
   }).join("");
 }
 
+/* "+1 to a stat of choice" on the next level-up. The endpoint has always
+   existed; without this row nobody could reach it and every player silently
+   took their class primary. */
+function renderLevelChoice(state) {
+  const box = el("level-choice");
+  if (!box) return;
+  if (!state.you || !STATS.length) { box.innerHTML = ""; return; }
+  const current = levelStat || PRIMARY[state.you.class_id] || STATS[0];
+  box.innerHTML = `
+    <div class="who"><span>Next level-up</span>
+      <span class="num">+1 ${esc(current)}</span></div>
+    <div class="stats">${STATS.map((stat) => `
+      <button type="button" class="stat" data-stat="${esc(stat)}"
+              aria-pressed="${stat === current ? "true" : "false"}">
+        ${esc(stat)}</button>`).join("")}</div>
+    <p class="roll" id="level-choice-error" role="alert"></p>`;
+}
+
 /* --- the log -------------------------------------------------------------- */
 
 function entryFor(seq) {
@@ -205,6 +228,7 @@ function renderEvent(event) {
 async function refresh() {
   const state = await api(`/api/rooms/${ROOM}/state`);
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
+  renderLevelChoice(state);
   el("dm-badge").textContent = `DM: ${state.narrator ?? "template"}`;
   if (state.room.premise) el("premise").textContent = state.room.premise;
   return state;
@@ -240,10 +264,37 @@ el("abilities").addEventListener("click", async (event) => {
   } catch (error) { el("action-error").textContent = error.message; }
 });
 
+el("level-choice").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-stat]");
+  if (!button || button.disabled) return;
+  const stat = button.dataset.stat;
+  const previous = levelStat;
+  levelStat = stat;                    // optimistic; rolled back on failure
+  for (const b of el("level-choice").querySelectorAll("[data-stat]")) {
+    b.setAttribute("aria-pressed", b === button ? "true" : "false");
+    b.disabled = true;
+  }
+  try {
+    await api(`/api/rooms/${ROOM}/level-choice`, {
+      method: "POST", body: JSON.stringify({ stat }),
+    });
+    await refresh();
+  } catch (error) {
+    levelStat = previous;
+    await refresh();
+    const box = el("level-choice-error");
+    if (box) box.textContent = error.message;
+  }
+});
+
 el("pass").addEventListener("click", async () => {
   el("action-error").textContent = "";
   try { await api(`/api/rooms/${ROOM}/end-turn`, { method: "POST" }); }
   catch (error) { el("action-error").textContent = error.message; }
 });
 
-refresh().then(connect);
+/* The six stat names come from the server, not a list hard-coded here. */
+api("/api/classes").then((data) => {
+  STATS = data.stats || [];
+  PRIMARY = Object.fromEntries((data.classes || []).map((c) => [c.id, c.primary]));
+}).catch(() => {}).then(() => refresh()).then(connect);
