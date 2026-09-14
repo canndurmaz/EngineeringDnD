@@ -64,6 +64,68 @@ def test_the_annunciator_offers_the_start_button_only_in_the_lobby(client):
     assert "Start the programme" in table_page(client)
 
 
+def test_the_start_control_lives_on_the_table_not_only_the_join_page(client):
+    """A seated player who walks to the table is told to start the programme;
+    the control has to be there to be told about."""
+    body = table_page(client)
+    assert 'id="ann-start"' in body
+    band = body[body.index('id="annunciator"'):body.index('id="log"')]
+    assert 'id="ann-start"' in band
+    # the same action carries the same name as the join page's button
+    assert "Start the programme" in band
+    assert "Start the programme" in js(client, "lobby.js")
+
+
+def test_the_table_start_control_posts_to_the_same_endpoint(client):
+    body = js(client, "game.js")
+    handler = body[body.index('el("ann-start").addEventListener'):]
+    handler = handler[:handler.index("\n});")]
+    assert "/start" in handler and 'method: "POST"' in handler
+    # the server's own refusal reaches the player rather than being swallowed
+    assert 'el("ann-error").textContent = error.message' in handler
+
+
+def test_a_spectator_in_the_lobby_gets_no_start_control(client):
+    body = js(client, "game.js")
+    assert "offerStart = !!state.you" in body
+    assert 'el("ann-start").hidden = !offerStart' in body
+
+
+def test_the_lobby_line_only_tells_a_seated_viewer_to_start(client):
+    """A spectator cannot start (the server answers 403), so the band must not
+    read as an instruction to them."""
+    body = js(client, "game.js")
+    lobby = body[body.index('if (status === "lobby")'):body.index('} else if (status === "won")')]
+    assert "offerStart" in lobby
+    assert "Start when everyone's in." in lobby
+    assert "Waiting for a seated engineer to start." in lobby
+    # the seated sentence is reached only through the offerStart branch
+    assert lobby.index("offerStart") < lobby.index("Start when everyone's in.")
+
+
+def test_the_spectator_line_is_not_duplicated_from_the_abilities_panel(client):
+    """One sentence, one place: the band does not repeat the watching notice."""
+    body = js(client, "game.js")
+    assert body.count("You are watching this table") == 1
+
+
+def test_the_start_control_sits_outside_the_live_region(client):
+    """aria-live announces the state text; a button inside it would be
+    re-announced on every poll."""
+    body = table_page(client)
+    live = body[body.index('id="ann-live"'):]
+    live = live[:live.index("</p>")]
+    assert 'id="ann-start"' not in live
+
+
+def test_the_start_control_sits_quietly_inside_the_band(client):
+    sheet = css(client)
+    rule = sheet[sheet.index("#ann-start {"):]
+    rule = rule[:rule.index("}")]
+    assert "background: transparent" in rule
+    assert "var(--lamp" in rule
+
+
 def test_the_annunciator_names_whoever_the_table_is_waiting_on(client):
     body = js(client, "game.js")
     assert 'active.is_bot ? "working" : "deciding"' in body
@@ -235,3 +297,59 @@ def test_a_seated_player_can_still_reach_the_table(client):
     body = join_page(client)
     assert 'id="to-table"' in body
     assert "Go to the table" in body
+
+
+# --- the audit: every control on the table gated on room state and seat ------
+
+def test_the_pass_button_is_dead_for_a_spectator(client):
+    """canAct() requires a seat, and the pass button takes canAct()."""
+    body = js(client, "game.js")
+    gate = body[body.index("const canAct ="):]
+    gate = gate[:gate.index(";")]
+    assert "!!state.you" in gate
+    assert 'el("pass").disabled = !mine;' in body
+    # and the disabling happens before the spectator early-return
+    render = body[body.index("function renderAbilities"):]
+    render = render[:render.index("\n}")]
+    assert render.index('el("pass").disabled') < render.index("if (!me)")
+
+
+def test_a_spectator_gets_no_ability_buttons_at_all(client):
+    body = js(client, "game.js")
+    render = body[body.index("function renderAbilities"):]
+    render = render[:render.index("\n}")]
+    spectator = render[render.index("if (!me) {"):]
+    assert "return;" in spectator[:spectator.index("me.abilities")]
+
+
+def test_the_level_up_picker_is_hidden_without_a_seat(client):
+    """/level-choice answers 403 to anyone unseated, so the row is not drawn."""
+    body = js(client, "game.js")
+    render = body[body.index("function renderLevelChoice"):]
+    render = render[:render.index("\n}")]
+    assert 'if (!state.you || !STATS.length) { box.innerHTML = ""; return; }' in render
+
+
+def test_the_server_refuses_a_level_choice_from_an_unseated_visitor(client):
+    room_id = make_room(client)
+    response = client.post(f"/api/rooms/{room_id}/level-choice", json={"stat": "RIGOR"})
+    assert response.status_code == 403
+
+
+def test_the_server_refuses_a_start_from_an_unseated_visitor(client):
+    """The 403 behind the spectator's missing button."""
+    room_id = make_room(client)
+    client.post(f"/api/rooms/{room_id}/join",
+                json={"display_name": "Ada", "class_id": "computer_scientist"})
+    with client.session_transaction() as session:
+        session.clear()                      # same room, no seat
+    response = client.post(f"/api/rooms/{room_id}/start")
+    assert response.status_code == 403
+    assert "not seated" in response.get_json()["error"]
+
+
+def test_the_table_page_carries_no_ungated_bot_control(client):
+    """Bots are added from the join page, where the seat gate already lives."""
+    body = table_page(client)
+    assert "bot-add" not in body
+    assert "Add bot" not in body
