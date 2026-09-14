@@ -66,7 +66,8 @@ button, .btn {
   padding: 9px 16px; font-weight: 600;
 }
 button:disabled { background: var(--panel-2); color: var(--ink-dim); cursor: not-allowed; }
-button.ghost { background: transparent; color: var(--cyan); border: 1px solid var(--line); }
+button.ghost, .btn.ghost { background: transparent; color: var(--cyan); border: 1px solid var(--line); }
+a.btn { display: inline-block; text-decoration: none; }
 
 input, select {
   font: inherit; background: var(--panel-2); color: var(--ink);
@@ -163,6 +164,15 @@ input, select {
 }
 .pick-wrap { display: flex; flex-direction: column; }
 .pick-wrap .pick { flex: 1 1 auto; }
+/* The line above the class grid, and the call to action on each card. */
+.seat-first { margin: 18px 0 0; color: var(--ink-dim); font-size: 13px; }
+.pick .cta {
+  display: block; margin-top: 10px; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--cyan);
+}
+.pick:disabled .cta { color: var(--ink-dim); }
+.seat-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+
 .bot-add {
   margin-top: 6px; padding: 5px 8px; font-size: 11px;
   font-family: var(--mono); letter-spacing: .04em;

@@ -87,6 +87,9 @@ if (seatForm) {
   let classList = [];            // /api/classes, kept so the cards can redraw
   let seated = 0;
   let seatsLeft = 1;
+  /* Seat first, fill afterwards: /bots refuses anyone without a seat, so the
+     control must not exist before this visitor has one. */
+  let joined = false;
   let options = {};
   let look = {};
 
@@ -95,6 +98,8 @@ if (seatForm) {
   let revealing = false;
 
   const startButton = document.getElementById("start");
+  const seatFirst = document.getElementById("seat-first");
+  const toTable = document.getElementById("to-table");
 
   /* The server already refuses to start an empty room (and refuses anyone who
      is not seated); this only stops the button from lying about it. */
@@ -108,10 +113,16 @@ if (seatForm) {
   const refresh = async () => {
     const state = await api(`/api/rooms/${roomId}/state`);
     taken = new Set(Object.values(state.characters).map((c) => c.class_id));
+    joined = !!state.you;
     const size = state.party_size || {};
     seated = size.seated ?? Object.keys(state.characters).length;
     seatsLeft = (size.max ?? seated + 1) - seated;
     gateStart(seated);
+    seatFirst.textContent = joined
+      ? "You\u2019re seated. Add bots to the empty seats, then start."
+      : "Pick your discipline first \u2014 you can add bots to the empty seats afterwards.";
+    if (joined) seatForm.hidden = true;          // the picker has done its job
+    toTable.hidden = !joined;
     show("party-count", seatedLabel(seated, size.bots || 0));
     document.getElementById("roster").innerHTML =
       Object.values(state.characters).map((c) => `
@@ -128,7 +139,9 @@ if (seatForm) {
     drawClasses();
     if (state.room.premise) show("genesis", state.room.premise);
     if (revealing) return state;          // let the player read their dice first
-    if (state.you) location.href = `/room/${roomId}`;
+    /* A seated player stays here while the room is still filling up -- this is
+       where bots are added and the programme is started. Once it is running,
+       the table is the only place to be. */
     if (state.room.status === "active") location.href = `/room/${roomId}`;
     return state;
   };
@@ -140,19 +153,24 @@ if (seatForm) {
   const drawClasses = () => {
     const target = document.getElementById("classes");
     if (!classList.length || !target) return;
-    target.innerHTML = classList.map((cls) => `
+    target.innerHTML = classList.map((cls) => {
+      const isTaken = taken.has(cls.id);
+      const cta = isTaken ? "Taken" : joined ? "Open seat" : "Take this seat";
+      return `
       <div class="pick-wrap">
         <button type="button" class="pick" data-class="${esc(cls.id)}"
-                ${taken.has(cls.id) ? "disabled" : ""}>
+                ${isTaken || joined ? "disabled" : ""}>
           <span class="name">${esc(cls.name)}</span>
           <span class="stats">${esc(cls.primary)} / ${esc(cls.secondary)}</span>
           <span class="role">${esc(cls.role)}</span>
           <span class="role" style="margin-top:6px;display:block">${esc(cls.blurb)}</span>
+          <span class="cta">${esc(cta)}</span>
         </button>
-        ${taken.has(cls.id) ? "" : `<button type="button" class="bot-add"
+        ${joined && !isTaken ? `<button type="button" class="bot-add"
           data-bot="${esc(encodeURIComponent(cls.id))}" ${seatsLeft > 0 ? "" : "disabled"}
-          >Add bot</button>`}
-      </div>`).join("");
+          >Add bot</button>` : ""}
+      </div>`;
+    }).join("");
   };
 
   const loadClasses = ({ classes }) => { classList = classes; drawClasses(); };
@@ -163,13 +181,19 @@ if (seatForm) {
       if (bot.disabled) return;
       bot.disabled = true;
       show("join-error", "");
+      let failed = "";
       try {
         await api(`/api/rooms/${roomId}/bots`, {
           method: "POST",
           body: JSON.stringify({ class_id: decodeURIComponent(bot.dataset.bot) }),
         });
-      } catch (error) { show("join-error", error.message); }
+      } catch (error) {
+        /* Say what the server said. Swallowing it is how "you are not seated
+           in this room" became a mystery in the first place. */
+        failed = error.message || "The bot could not take that seat.";
+      }
       await refresh();
+      if (failed) show("join-error", failed);
       return;
     }
     const button = event.target.closest("[data-class]");
@@ -242,8 +266,11 @@ if (seatForm) {
         <div class="roll-rows">${detail.rolls.map((r) => rollRow(r, detail)).join("")}</div>
         <button type="button" id="take-seat" style="margin-top:14px">Take your seat &rarr;</button>
       </div>`;
-    target.querySelector("#take-seat")
-      .addEventListener("click", () => { location.href = `/room/${roomId}`; });
+    target.querySelector("#take-seat").addEventListener("click", () => {
+      revealing = false;
+      target.innerHTML = "";
+      refresh();          // seated now: bots, the party count, and the start
+    });
   };
 
   /* --- appearance pickers -------------------------------------------------- */

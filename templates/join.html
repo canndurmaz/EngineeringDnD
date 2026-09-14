@@ -23,8 +23,6 @@
         <div class="pickers" id="pickers"></div>
       </div>
 
-      <p id="join-error" class="debt" role="alert"></p>
-
       <details class="stat-guide" open>
         <summary>What the six stats mean</summary>
         <dl class="stat-list">
@@ -49,10 +47,21 @@
         </ul>
       </details>
 
-      <div class="card-grid" id="classes" style="margin-top:14px"></div>
     </form>
+
+    <!-- Seat first, fill afterwards. The bot controls are drawn by lobby.js and
+         only once this visitor holds a seat, because /bots requires one. -->
+    <p class="seat-first" id="seat-first">Pick your discipline first &mdash;
+      you can add bots to the empty seats afterwards.</p>
+    <div class="card-grid" id="classes" style="margin-top:14px"></div>
+
+    <p id="join-error" class="debt" role="alert"></p>
     <div id="roll-reveal"></div>
-    <button id="start" class="ghost" style="margin-top:18px" disabled>Waiting for engineers&hellip;</button>
+    <div class="seat-actions">
+      <button id="start" class="ghost" disabled>Waiting for engineers&hellip;</button>
+      <a class="btn ghost" id="to-table" href="{{ url_for('page_table', room_id=room_id) }}"
+         hidden>Go to the table</a>
+    </div>
   </section>
 </div>
 {% endblock %}
