@@ -141,3 +141,69 @@ def test_worker_thread_starts_and_stops_cleanly(rig):
     worker.stop()
     assert svc.narration(room_id, seq)["status"] == "done"
     assert worker.thread is None or not worker.thread.is_alive()
+
+
+# --- the phase interlude (spec 5.3, third narrator job) ---------------------
+
+def phase_job(room_id, phase="Design"):
+    return {"kind": "phase", "priority": 1, "room_id": room_id,
+            "event_seq": None, "phase": phase, "premise": "A trainer aircraft"}
+
+
+def test_a_phase_job_is_not_routed_to_the_turn_handler(rig):
+    svc, room_id, _ = rig
+    worker = NarrationWorker(NarrationQueue(), FakeNarrator(), svc, EventBroker())
+    worker._handle(phase_job(room_id))
+    kinds = [e["kind"] for e in svc.events_since(room_id, 0)]
+    assert "interlude" in kinds
+    assert kinds.count("narration") == 0
+
+
+def test_the_phase_branch_appends_an_interlude_event(rig):
+    svc, room_id, _ = rig
+    worker = NarrationWorker(NarrationQueue(), FakeNarrator(), svc, EventBroker())
+    worker._handle(phase_job(room_id, "Prototype"))
+    event = [e for e in svc.events_since(room_id, 0)
+             if e["kind"] == "interlude"][-1]
+    assert event["payload"]["phase"] == "Prototype"
+    assert event["payload"]["text"]
+    assert event["payload"]["source"]
+
+
+def test_the_phase_branch_publishes_to_subscribers(rig):
+    svc, room_id, _ = rig
+    broker = EventBroker()
+    q = broker.subscribe(room_id)
+    NarrationWorker(NarrationQueue(), FakeNarrator(), svc,
+                    broker)._handle(phase_job(room_id))
+    published = q.get(timeout=2)
+    assert published["kind"] == "interlude" and published["text"]
+
+
+def test_the_phase_branch_writes_no_narration_row(rig):
+    """An interlude has no event_seq, so the narrations table is not its home."""
+    svc, room_id, _ = rig
+    worker = NarrationWorker(NarrationQueue(), FakeNarrator(), svc, EventBroker())
+    worker._handle(phase_job(room_id))
+    seq = [e for e in svc.events_since(room_id, 0)
+           if e["kind"] == "interlude"][-1]["seq"]
+    assert svc.narration(room_id, seq) is None
+
+
+def test_a_broken_narrator_still_yields_an_interlude(rig):
+    svc, room_id, _ = rig
+    worker = NarrationWorker(NarrationQueue(), BoomNarrator(), svc, EventBroker())
+    worker._handle(phase_job(room_id))
+    event = [e for e in svc.events_since(room_id, 0)
+             if e["kind"] == "interlude"][-1]
+    assert event["payload"]["source"] == "template"
+    assert event["payload"]["text"]
+
+
+def test_a_phase_job_runs_end_to_end_through_run_once(rig):
+    svc, room_id, _ = rig
+    queue = NarrationQueue()
+    worker = NarrationWorker(queue, FakeNarrator(), svc, EventBroker())
+    queue.submit(phase_job(room_id))
+    assert worker.run_once(timeout=1) is True
+    assert any(e["kind"] == "interlude" for e in svc.events_since(room_id, 0))

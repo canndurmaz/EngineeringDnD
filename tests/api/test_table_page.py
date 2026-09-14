@@ -39,3 +39,11 @@ def test_game_script_reconnects_with_last_event_id(client):
 def test_table_shows_the_narrator_badge(client):
     room_id = make_room(client)
     assert 'id="dm-badge"' in client.get(f"/room/{room_id}").get_data(as_text=True)
+
+
+def test_game_script_subscribes_to_the_phase_interlude(client):
+    """narrator/worker publishes `interlude`; a kind the client does not
+    addEventListener for is silently dropped by EventSource."""
+    body = client.get("/static/js/game.js").get_data(as_text=True)
+    assert '"interlude"' in body
+    assert 'event.kind === "interlude"' in body

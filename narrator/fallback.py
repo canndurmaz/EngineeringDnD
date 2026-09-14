@@ -60,7 +60,9 @@ class TemplateNarrator:
     name = "template"
 
     def narrate(self, job: dict) -> str:
-        seq = int(job.get("event_seq", 0))
+        # A phase interlude belongs to no single action, so its event_seq is
+        # None; `or 0` keeps int() from raising on it.
+        seq = int(job.get("event_seq") or 0)
         kind = job.get("kind", "turn")
 
         if kind == "genesis":

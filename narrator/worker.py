@@ -120,6 +120,8 @@ class NarrationWorker:
             return self._handle_premise(job)
         if kind == "hazards":
             return self._handle_hazards(job)
+        if kind == "phase":
+            return self._handle_interlude(job)
         return self._handle_turn(job)
 
     def _handle_turn(self, job: dict) -> None:
@@ -146,6 +148,17 @@ class NarrationWorker:
         seq = room.append_event("premise", None, payload)
         self.broker.publish(job["room_id"],
                             {"seq": seq, "kind": "premise", **payload})
+
+    def _handle_interlude(self, job: dict) -> None:
+        """The phase-gate interlude. It belongs to no single action, so it has
+        no event_seq and never touches the narrations table -- it is published
+        as its own `interlude` event."""
+        text, source = self._generate(job)
+        room = self.service._room(job["room_id"])
+        payload = {"phase": job.get("phase", ""), "text": text, "source": source}
+        seq = room.append_event("interlude", None, payload)
+        self.broker.publish(job["room_id"],
+                            {"seq": seq, "kind": "interlude", **payload})
 
     def _handle_hazards(self, job: dict) -> None:
         from narrator.genesis import parse_hazard_lines

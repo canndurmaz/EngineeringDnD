@@ -278,3 +278,99 @@ def test_action_event_carries_the_dc_once_it_is_revealed(svc):
     result = svc.act(room_id, a["player_id"], "unit_test_barrage")
     payload = _action_event(svc, room_id, result)["payload"]
     assert payload["dc"] == result["dc"] and isinstance(payload["dc"], int)
+
+
+# --- the phase interlude job (spec 5.3) ------------------------------------
+
+class _Recorder:
+    """A queue stand-in that remembers the jobs it was handed."""
+
+    def __init__(self, service=None):
+        self.jobs = []
+        self.service = service
+        self.phase_index_at_submit = []
+
+    def submit(self, job):
+        self.jobs.append(job)
+        if self.service is not None:
+            snap = self.service.snapshot(job["room_id"])
+            self.phase_index_at_submit.append(snap["room"]["phase_index"])
+
+    def of_kind(self, kind):
+        return [j for j in self.jobs if j.get("kind") == kind]
+
+
+def test_clearing_a_phase_submits_a_phase_narration_job(svc):
+    room_id, a, _ = seat_two(svc)
+    svc.queue = _Recorder()
+    svc._force_clear_phase(room_id)
+    jobs = svc.queue.of_kind("phase")
+    assert len(jobs) == 1
+    assert jobs[0] == {"kind": "phase", "priority": 1, "room_id": room_id,
+                       "event_seq": None, "phase": "Design", "premise": ""}
+
+
+def test_the_phase_job_names_the_phase_just_entered(svc):
+    room_id, _, _ = seat_two(svc)
+    svc.queue = _Recorder()
+    svc._force_clear_phase(room_id)     # Requirements -> Design
+    svc._force_clear_phase(room_id)     # Design -> Prototype
+    assert [j["phase"] for j in svc.queue.of_kind("phase")] == ["Design",
+                                                               "Prototype"]
+
+
+def test_the_phase_job_is_submitted_after_the_state_is_committed(svc):
+    """Commit before narrate: the job must never describe a phase the database
+    has not been told about yet."""
+    room_id, _, _ = seat_two(svc)
+    svc.queue = _Recorder(svc)
+    svc._force_clear_phase(room_id)
+    assert svc.queue.phase_index_at_submit == [1]
+
+
+def test_a_turn_that_clears_no_phase_submits_no_phase_job(svc):
+    room_id, a, _ = seat_two(svc)
+    svc.queue = _Recorder()
+    svc.act(room_id, a["player_id"], "unit_test_barrage")
+    assert svc.queue.of_kind("phase") == []
+
+
+def test_clearing_a_phase_by_ending_a_turn_submits_the_job(svc):
+    """end_turn runs _after_turn too, so it must flush the interlude as well."""
+    room_id, _, _ = seat_two(svc)
+    room = svc._room(room_id)
+    state = room.load_state()
+    for hazard in state["hazards"]:
+        if hazard["phase_index"] == state["room"]["phase_index"]:
+            hazard["severity"] = 0
+            hazard["defeated"] = True
+    room.save_state(state)
+
+    svc.queue = _Recorder()
+    svc.end_turn(room_id, svc.snapshot(room_id)["turn"]["order"][0])
+    assert [j["phase"] for j in svc.queue.of_kind("phase")] == ["Design"]
+
+
+def test_a_pass_that_clears_nothing_submits_no_phase_job(svc):
+    room_id, _, _ = seat_two(svc)
+    svc.queue = _Recorder()
+    svc.end_turn(room_id, svc.snapshot(room_id)["turn"]["order"][0])
+    assert svc.queue.of_kind("phase") == []
+
+
+def test_winning_the_last_phase_submits_no_interlude(svc):
+    """There is no phase to narrate an entry into; game_over speaks instead."""
+    room_id, _, _ = seat_two(svc)
+    svc.queue = _Recorder()
+    for _ in range(6):
+        svc._force_clear_phase(room_id)
+    assert svc.snapshot(room_id)["room"]["status"] == "won"
+    phases = [j["phase"] for j in svc.queue.of_kind("phase")]
+    assert phases == ["Design", "Prototype", "Integration", "Qualification"]
+
+
+def test_no_queue_means_no_crash_when_a_phase_clears(svc):
+    room_id, _, _ = seat_two(svc)
+    assert svc.queue is None
+    svc._force_clear_phase(room_id)
+    assert svc.snapshot(room_id)["room"]["phase_index"] == 1

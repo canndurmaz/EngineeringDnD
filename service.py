@@ -37,6 +37,9 @@ class GameService:
         self._locks_guard = threading.Lock()
         self._rooms: dict = {}
         self._level_choices: dict = {}
+        # Phase interludes staged under the room lock, submitted once it is
+        # released; see _flush_phase_jobs.
+        self._pending_phase: dict = {}
 
     # --- plumbing ----------------------------------------------------------
 
@@ -188,6 +191,17 @@ class GameService:
                                     self._stat_choices(room_id, state))
             self._level_choices.pop(room_id, None)
             events.append(room.append_event("phase_advanced", None, summary))
+            if not summary.get("won"):
+                # Staged, not submitted: the narrator must never see a phase the
+                # database has not committed yet, and the queue must never be
+                # touched while the room lock is held. _flush_phase_jobs sends it
+                # once save_state has returned and the lock is gone.
+                self._pending_phase[room_id] = {
+                    "kind": "phase", "priority": 1, "room_id": room_id,
+                    "event_seq": None,
+                    "phase": PHASES[state["room"]["phase_index"]][1],
+                    "premise": state["room"].get("premise", ""),
+                }
 
         ending = check_end_conditions(state)
         if ending == "win":
@@ -247,6 +261,7 @@ class GameService:
             self._reindex(room_id, state)
             self._publish(room_id, room.events_since(action_seq - 1))
 
+        self._flush_phase_jobs(room_id)
         self._enqueue_narration(room_id, player_id, action_seq, state, ability, result)
         return {"event_seq": action_seq, "outcome": result.outcome,
                 "natural": result.natural, "total": result.total, "dc": dc_public,
@@ -272,9 +287,18 @@ class GameService:
             room.save_state(state)
             self._reindex(room_id, state)
             self._publish(room_id, room.events_since(start_seq))
-            return {"events": room.events_since(start_seq)}
+            outcome = {"events": room.events_since(start_seq)}
+        self._flush_phase_jobs(room_id)
+        return outcome
 
     # --- narration hand-off -------------------------------------------------
+
+    def _flush_phase_jobs(self, room_id: str) -> None:
+        """Submit a staged phase interlude. Call outside the room lock, after
+        save_state -- same commit-before-narrate rule as _enqueue_narration."""
+        job = self._pending_phase.pop(room_id, None)
+        if job is not None and self.queue is not None:
+            self.queue.submit(job)
 
     def _enqueue_narration(self, room_id, player_id, event_seq, state, ability,
                            result) -> None:
@@ -317,6 +341,7 @@ class GameService:
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)
+        self._flush_phase_jobs(room_id)
 
     def _force_clear_phase(self, room_id: str) -> None:
         """Defeat every hazard in the current phase. Tests only."""
@@ -330,6 +355,7 @@ class GameService:
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)
+        self._flush_phase_jobs(room_id)
 
     # --- genesis -----------------------------------------------------------
 

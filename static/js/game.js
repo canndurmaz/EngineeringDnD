@@ -154,6 +154,16 @@ function renderEvent(event) {
     return;
   }
 
+  if (event.kind === "interlude") {
+    const node = entryFor(event.seq);
+    node.classList.remove("pending");
+    node.insertAdjacentHTML("beforeend",
+      `<div class="roll">${esc(event.phase || "")} gate</div>
+       <p class="prose">${esc(event.text || "")}</p>`);
+    el("log").scrollTop = el("log").scrollHeight;
+    return;
+  }
+
   if (event.kind === "action") {
     const node = entryFor(event.seq);
     const hit = event.outcome === "success" || event.outcome === "crit";
@@ -205,7 +215,7 @@ function connect() {
   source.onmessage = () => {};
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
-   "campaign_updated", "passed", "room_created"].forEach((kind) => {
+   "campaign_updated", "passed", "room_created", "interlude"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);
       renderEvent(event);
