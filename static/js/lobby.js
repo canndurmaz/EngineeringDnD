@@ -158,10 +158,16 @@ if (seatForm) {
       if (strike) dropped = true;
       return dieTag(value, strike);
     }).join("");
+    /* A raw total outside 8-16 is pulled back into the band. Showing the
+       adjustment is the whole point: a 7 sitting next to a stat of 8 reads as
+       the game lying unless the arrow is there to explain it. */
+    const clamped = roll.value !== undefined && roll.value !== roll.total;
     return `
       <div class="roll-row${seat ? " seated" : ""}">
         <span class="dice">${dice}</span>
         <span class="total">= ${esc(roll.total)}</span>
+        ${clamped ? `<span class="clamped" title="clamped to the 8-16 range"
+          >&rarr; ${esc(roll.value)}</span>` : ""}
         <span class="lands">${esc(roll.stat)}</span>
         ${seat ? `<span class="seat">${esc(seat)}</span>` : ""}
       </div>`;

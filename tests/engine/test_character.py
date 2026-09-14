@@ -155,3 +155,20 @@ def test_roll_stats_still_matches_the_detailed_roll(cat):
     for seed in range(20):
         assert roll_stats(cls, Dice(seed)) == roll_stats(cls, Dice(seed))
         assert roll_stats(cls, Dice(seed)) == roll_stats_detailed(cls, Dice(seed))[0]
+
+
+def test_detail_value_is_the_clamped_score_and_matches_the_stats(cat):
+    """The reveal is pinned to the truth: `value` is what the character has."""
+    cls = cat.classes["ee_engineer"]
+    saw_a_clamp = False
+    for seed in range(120):
+        stats, detail = roll_stats_detailed(cls, Dice(seed))
+        for roll in detail["rolls"]:
+            assert roll["value"] == stats[roll["stat"]]
+            assert roll["value"] == max(8, min(16, roll["total"]))
+            if roll["total"] < 8 or roll["total"] > 16:
+                saw_a_clamp = True
+                assert roll["value"] != roll["total"]
+            else:
+                assert roll["value"] == roll["total"]
+    assert saw_a_clamp, "no out-of-band total in 120 seeds; test proves nothing"

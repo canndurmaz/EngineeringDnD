@@ -57,3 +57,15 @@ def test_lobby_js_reveals_the_roll_and_offers_no_reroll(client):
     # The reveal must not redirect on its own -- the player clicks through it.
     assert "revealing = true" in js
     assert "if (revealing) return state;" in js
+
+
+def test_the_explainer_mentions_the_clamp(client):
+    body = _join_page(client)
+    assert "8&ndash;16" in body
+    assert "pulled back toward the middle" in body
+
+
+def test_lobby_js_shows_the_clamp_adjustment(client):
+    js = client.get("/static/js/lobby.js").get_data(as_text=True)
+    assert 'title="clamped to the 8-16 range"' in js
+    assert "roll.value !== roll.total" in js

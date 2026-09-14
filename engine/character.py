@@ -22,7 +22,8 @@ def roll_stats_detailed(cls: CharacterClass, dice: Dice) -> tuple[dict, dict]:
 
     The detail is purely for the one-time reveal on the character-select screen:
     six rolls in the order they were rolled, each carrying its four raw d6, the
-    die that was dropped, the total of the three kept, and the stat it landed in.
+    die that was dropped, the total of the three kept, the stat it landed in and
+    the final value after the 8-16 clamp.
     """
     rolls = [_four_d6_drop_lowest(dice) for _ in range(6)]
     # Best two totals seat in the class stats; the rest land in a shuffled order.
@@ -32,7 +33,9 @@ def roll_stats_detailed(cls: CharacterClass, dice: Dice) -> tuple[dict, dict]:
     stats = {}
     for roll, name in zip(ordered, [cls.primary, cls.secondary] + rest):
         roll["stat"] = name
-        stats[name] = max(8, min(16, roll["total"]))
+        # `value` is the score after the 8-16 clamp; it can differ from `total`,
+        # and the reveal shows that adjustment rather than hiding it.
+        roll["value"] = stats[name] = max(8, min(16, roll["total"]))
     detail = {"rolls": rolls, "primary": cls.primary, "secondary": cls.secondary}
     return {s: stats[s] for s in STATS}, detail
 
