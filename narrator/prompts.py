@@ -2,15 +2,18 @@
 """Prompt construction. The engine decided everything; the model only describes it."""
 from __future__ import annotations
 
+from narrator import settings
+
 SYSTEM_PROMPT = (
     "You are the Game Master of an engineering RPG. Describe what just happened "
-    "in 2-4 sentences of vivid, technically literate prose.\n"
+    "in 2-3 sentences of vivid, technically literate prose.\n"
     "RULES: Never invent numbers. Never contradict the stated outcome. "
     "Never decide what happens next. Do not address the player as \"you the user\". "
     "Do not mention dice, rolls, or difficulty classes. Write only the prose."
 )
 
-SAMPLING = {"temperature": 0.8, "max_tokens": 140, "stop": ["\n\n"]}
+SAMPLING = {"temperature": 0.8, "max_tokens": settings.max_tokens(),
+            "stop": ["\n\n"]}
 GENESIS_SAMPLING = {"temperature": 0.9, "max_tokens": 220, "stop": ["\n\n\n"]}
 
 _OUTCOME_LABEL = {"crit": "CRITICAL SUCCESS", "success": "SUCCESS",

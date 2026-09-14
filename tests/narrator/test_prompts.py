@@ -1,4 +1,4 @@
-from narrator.prompts import SAMPLING, SYSTEM_PROMPT, build
+from narrator.prompts import GENESIS_SAMPLING, SAMPLING, SYSTEM_PROMPT, build
 
 
 def turn_job():
@@ -70,3 +70,17 @@ def test_hazards_job_asks_for_a_specific_count():
 def test_sampling_caps_tokens_for_a_slow_cpu():
     assert SAMPLING["max_tokens"] <= 200
     assert SAMPLING["stop"] == ["\n\n"]
+
+
+def test_turn_generation_is_short_enough_for_a_2_core_cpu():
+    """Generation time is linear in tokens emitted; 60 covers 2-3 sentences."""
+    assert SAMPLING["max_tokens"] == 60
+
+
+def test_genesis_keeps_its_longer_budget():
+    """Genesis runs once per room, in the background, and writes a brief."""
+    assert GENESIS_SAMPLING["max_tokens"] == 220
+
+
+def test_the_system_prompt_asks_for_a_length_that_fits_the_cap():
+    assert "2-3 sentences" in SYSTEM_PROMPT and "2-4" not in SYSTEM_PROMPT
