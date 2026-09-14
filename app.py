@@ -50,6 +50,21 @@ def _public_hazard(state: dict) -> "dict | None":
     }
 
 
+def sse_frame(seq, kind, payload) -> str:
+    """One SSE frame.
+
+    Durable events carry `id:` so a reconnecting client can resume with
+    Last-Event-ID. A narration_chunk is a non-durable token preview stamped with
+    the *action's* seq, which is below the latest durable sequence -- stamping it
+    as an id would rewind a spec-compliant client and make it replay events it
+    has already rendered. Per the SSE spec a frame with no `id:` leaves the
+    client's last-event-ID untouched, which is exactly what a preview wants.
+    """
+    body = json.dumps({"seq": seq, "kind": kind, **payload})
+    head = "" if kind == "narration_chunk" else f"id: {seq}\n"
+    return f"{head}event: {kind}\ndata: {body}\n\n"
+
+
 def create_app(config: "dict | None" = None) -> Flask:
     app = Flask(__name__)
     app.config.update(ROOMS_ROOT="rooms", DATA_DIR="data", NARRATION=None)
@@ -234,10 +249,6 @@ def create_app(config: "dict | None" = None) -> Flask:
 
     # --- SSE ---------------------------------------------------------------
 
-    def _frame(seq, kind, payload) -> str:
-        body = json.dumps({"seq": seq, "kind": kind, **payload})
-        return f"id: {seq}\nevent: {kind}\ndata: {body}\n\n"
-
     @app.get("/api/rooms/<room_id>/stream")
     def api_stream(room_id):
         app.service.snapshot(room_id)          # raises ServiceError -> 400 if unknown
@@ -247,7 +258,7 @@ def create_app(config: "dict | None" = None) -> Flask:
 
         def generate():
             for event in app.service.events_since(room_id, since):
-                yield _frame(event["seq"], event["kind"], event["payload"])
+                yield sse_frame(event["seq"], event["kind"], event["payload"])
             if once:
                 return
             q = app.broker.subscribe(room_id)
@@ -259,7 +270,7 @@ def create_app(config: "dict | None" = None) -> Flask:
                     except queue.Empty:
                         yield ": keep-alive\n\n"     # keeps proxies from timing out
                         continue
-                    yield _frame(item["seq"], item["kind"], item)
+                    yield sse_frame(item["seq"], item["kind"], item)
             finally:
                 app.broker.unsubscribe(room_id, q)
 

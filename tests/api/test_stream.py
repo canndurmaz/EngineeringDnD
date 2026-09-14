@@ -3,6 +3,7 @@ import queue
 
 import pytest
 
+from app import sse_frame
 from broker import EventBroker
 from tests.api.conftest import make_room
 
@@ -89,3 +90,23 @@ def test_replayed_frames_carry_ids_and_json_payloads(client):
 
 def test_stream_for_an_unknown_room_is_a_400(client):
     assert client.get("/api/rooms/zzzzzz/stream?once=1").status_code == 400
+
+
+# --- frame ids ------------------------------------------------------------------
+
+def test_a_durable_frame_carries_an_id_line():
+    frame = sse_frame(7, "action", {"outcome": "hit"})
+    assert frame.startswith("id: 7\n")
+    assert "event: action\n" in frame
+
+
+def test_a_narration_chunk_frame_has_no_id_line():
+    """A chunk is stamped with the action's seq, below the latest durable one.
+
+    Stamping it as an id would rewind a client that reconnects with
+    Last-Event-ID and make it replay events it has already rendered.
+    """
+    frame = sse_frame(7, "narration_chunk", {"delta": "the "})
+    assert "id:" not in frame
+    assert frame.startswith("event: narration_chunk\n")
+    assert json.loads(frame.splitlines()[1][len("data: "):])["seq"] == 7
