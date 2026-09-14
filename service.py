@@ -4,6 +4,7 @@ from __future__ import annotations
 import secrets
 import threading
 
+import appearance as appearance_lib
 from engine.character import new_character
 from engine.classes import STATS, Catalog
 from engine.dice import Dice
@@ -96,7 +97,8 @@ class GameService:
     def list_rooms(self) -> list:
         return self.index.list_rooms()
 
-    def join_room(self, room_id: str, display_name: str, class_id: str) -> dict:
+    def join_room(self, room_id: str, display_name: str, class_id: str,
+                  appearance: "dict | None" = None) -> dict:
         if class_id not in self.catalog.classes:
             raise ServiceError(f"unknown class: {class_id}")
         with self._lock(room_id):
@@ -109,6 +111,11 @@ class GameService:
             char = new_character(player_id, display_name,
                                  self.catalog.classes[class_id], self.catalog,
                                  self._dice(state))
+            # Appearance is presentation, not rules, so the pure engine never
+            # sees it -- it is bolted on here and validated before it lands.
+            char["appearance"] = (appearance_lib.normalise(appearance)
+                                  if appearance
+                                  else appearance_lib.random_appearance())
             start_seq = room.latest_seq()
             room.add_player(player_id, display_name, token, class_id)
             state["characters"][player_id] = char

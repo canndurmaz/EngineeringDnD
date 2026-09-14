@@ -11,6 +11,7 @@ import segno
 from flask import (Flask, Response, abort, jsonify, render_template, request,
                    session, stream_with_context, url_for)
 
+import appearance as appearance_lib
 from broker import EventBroker
 from engine.classes import STATS, load_catalog
 from engine.phases import PHASES, load_archetypes, load_hazard_templates
@@ -141,6 +142,23 @@ def create_app(config: "dict | None" = None) -> Flask:
         return jsonify({"classes": out, "stats": list(STATS),
                         "phases": [{"id": p, "name": n} for p, n in PHASES]})
 
+    @app.get("/api/appearance-options")
+    def api_appearance_options():
+        return jsonify(appearance_lib.options())
+
+    @app.get("/api/avatar.svg")
+    def api_avatar():
+        """Render one avatar. Every parameter is checked against the curated
+        lists and anything unknown falls back, so a hand-typed URL cannot 500 or
+        reach the library's enums directly."""
+        chosen = appearance_lib.normalise(
+            {kind: request.args.get(kind) for kind in appearance_lib.KINDS})
+        return Response(
+            appearance_lib.render_svg(chosen), mimetype="image/svg+xml",
+            # A given combination always renders identically, so it can be
+            # cached forever; the query string is the cache key.
+            headers={"Cache-Control": "public, max-age=31536000"})
+
     # --- lobby -------------------------------------------------------------
 
     @app.get("/api/rooms")
@@ -166,7 +184,8 @@ def create_app(config: "dict | None" = None) -> Flask:
             raise ServiceError("you need a display name")
         if len(name) > NAME_MAX:
             raise ServiceError(f"a display name is at most {NAME_MAX} characters")
-        joined = app.service.join_room(room_id, name, body.get("class_id", ""))
+        joined = app.service.join_room(room_id, name, body.get("class_id", ""),
+                                       body.get("appearance"))
         session[session_key(room_id)] = {"player_id": joined["player_id"],
                                          "token": joined["token"]}
         session.permanent = True
