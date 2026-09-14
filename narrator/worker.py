@@ -53,7 +53,22 @@ class NarrationWorker:
             self.thread = None
         self._pool.shutdown(wait=False, cancel_futures=True)
 
+    def _warm(self) -> None:
+        """Pay the model-load cost once, at startup, instead of on the first
+        narration. A failure here is not fatal: `narrate` will raise in turn and
+        every job degrades to the template path exactly as it does today."""
+        load = getattr(self.narrator, "load", None)
+        if not callable(load):
+            return
+        try:
+            load()
+            log.info("narrator model warmed")
+        except Exception:
+            log.info("narrator warm-up failed; narration will use the template",
+                     exc_info=True)
+
     def _loop(self) -> None:
+        self._warm()
         while not self._stop.is_set():
             self.run_once(timeout=0.5)
 

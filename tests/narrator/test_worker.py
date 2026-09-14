@@ -207,3 +207,74 @@ def test_a_phase_job_runs_end_to_end_through_run_once(rig):
     queue.submit(phase_job(room_id))
     assert worker.run_once(timeout=1) is True
     assert any(e["kind"] == "interlude" for e in svc.events_since(room_id, 0))
+
+
+# --- startup warm-up -------------------------------------------------------
+
+
+class LoadableNarrator(FakeNarrator):
+    """A narrator with a lazy `load()`, like LlamaNarrator."""
+
+    name = "loadable"
+
+    def __init__(self, boom=False):
+        super().__init__("Warm prose.")
+        self.boom = boom
+        self.loads = 0
+        self.loaded = __import__("threading").Event()
+
+    def load(self):
+        self.loads += 1
+        self.loaded.set()
+        if self.boom:
+            raise RuntimeError("no model on disk")
+        return object()
+
+
+def _run_briefly(worker, narrator):
+    worker.start()
+    try:
+        narrator.loaded.wait(timeout=2.0)
+    finally:
+        worker.stop()
+
+
+def test_the_worker_warms_the_model_once_at_start(rig):
+    svc, _, _ = rig
+    narrator = LoadableNarrator()
+    worker = NarrationWorker(NarrationQueue(), narrator, svc, EventBroker())
+    _run_briefly(worker, narrator)
+    assert narrator.loads == 1
+
+
+def test_a_failing_warm_up_does_not_kill_the_thread(rig):
+    """A missing model must degrade to the template, not stop narration."""
+    svc, room_id, seq = rig
+    narrator = LoadableNarrator(boom=True)
+    q = NarrationQueue()
+    worker = NarrationWorker(q, narrator, svc, EventBroker())
+    worker.start()
+    try:
+        assert narrator.loaded.wait(timeout=2.0)
+        q.submit(make_job(room_id, seq))
+        for _ in range(40):
+            if svc.narration(room_id, seq)["status"] == "done":
+                break
+            import time
+            time.sleep(0.05)
+    finally:
+        worker.stop()
+    assert svc.narration(room_id, seq)["status"] == "done"
+
+
+def test_a_narrator_without_load_is_left_alone(rig):
+    svc, _, _ = rig
+    worker = NarrationWorker(NarrationQueue(), FakeNarrator(), svc, EventBroker())
+    worker._warm()                       # must be a no-op, not an AttributeError
+
+
+def test_warm_swallows_whatever_load_raises(rig):
+    svc, _, _ = rig
+    narrator = LoadableNarrator(boom=True)
+    NarrationWorker(NarrationQueue(), narrator, svc, EventBroker())._warm()
+    assert narrator.loads == 1
