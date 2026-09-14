@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS hazards (
     weakness      TEXT NOT NULL,
     revealed      TEXT NOT NULL DEFAULT '[]',
     defeated      INTEGER NOT NULL DEFAULT 0,
-    is_boss       INTEGER NOT NULL DEFAULT 0
+    is_boss       INTEGER NOT NULL DEFAULT 0,
+    subsystem     TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS turn_state (
@@ -86,6 +87,17 @@ CREATE TABLE IF NOT EXISTS narrations (
     status    TEXT NOT NULL DEFAULT 'pending',
     text      TEXT NOT NULL DEFAULT '',
     source    TEXT NOT NULL DEFAULT ''
+);
+
+-- Party chat. Not foreign-keyed to players: a bot that is unseated, or a
+-- player who leaves, should not take the conversation with them.
+CREATE TABLE IF NOT EXISTS messages (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        REAL NOT NULL,
+    player_id TEXT,
+    name      TEXT NOT NULL,
+    body      TEXT NOT NULL,
+    is_bot    INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE INDEX IF NOT EXISTS idx_hazards_phase ON hazards(phase_index, ordinal);
