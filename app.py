@@ -152,6 +152,10 @@ def create_app(config: "dict | None" = None) -> Flask:
 
     @app.post("/api/rooms/<room_id>/start")
     def api_start(room_id):
+        # Only someone seated at this table may start it; otherwise anyone who can
+        # reach the URL could start a game while players are still picking classes.
+        if not require_seat(room_id):
+            return jsonify({"error": "you are not seated in this room"}), 403
         app.service.start_game(room_id)
         return jsonify({"ok": True})
 

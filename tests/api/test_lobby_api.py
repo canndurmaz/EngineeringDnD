@@ -96,9 +96,20 @@ def test_start_activates_the_room(client):
     assert client.get(f"/api/rooms/{room_id}/state").get_json()["room"]["status"] == "active"
 
 
-def test_start_with_an_empty_room_is_a_400(client):
+def test_start_with_an_empty_room_is_rejected(client):
+    """Nobody can hold a seat in an empty room, so the seat guard answers first."""
     room_id = make_room(client)
-    assert client.post(f"/api/rooms/{room_id}/start").status_code == 400
+    assert client.post(f"/api/rooms/{room_id}/start").status_code == 403
+
+
+def test_start_requires_a_seat(app):
+    ada, stranger = app.test_client(), app.test_client()
+    room_id = make_room(ada)
+    ada.post(f"/api/rooms/{room_id}/join",
+             json={"display_name": "Ada", "class_id": "computer_scientist"})
+    assert stranger.post(f"/api/rooms/{room_id}/start").status_code == 403
+    assert ada.get(f"/api/rooms/{room_id}/state").get_json()["room"]["status"] \
+        == "lobby"
 
 
 def test_state_hides_unrevealed_hazard_fields(client):
