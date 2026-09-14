@@ -248,6 +248,25 @@ def test_action_event_hides_an_unrevealed_hazard_dc(svc):
     assert _action_event(svc, room_id, result)["payload"]["dc"] is None
 
 
+def test_action_response_hides_an_unrevealed_hazard_dc(svc):
+    """Taking your turn must not leak the DC the scan abilities exist to reveal."""
+    room_id, a, _ = seat_two(svc)
+    result = svc.act(room_id, a["player_id"], "unit_test_barrage")
+    assert result["dc"] is None
+
+
+def test_action_response_carries_the_dc_once_it_is_revealed(svc):
+    room_id, a, _ = seat_two(svc)
+    state = svc.snapshot(room_id)
+    hazard = next(h for h in state["hazards"]
+                  if h["id"] == state["active_hazard_id"])
+    hazard.setdefault("revealed", []).append("dc")
+    svc._room(room_id).save_state(state)
+
+    result = svc.act(room_id, a["player_id"], "unit_test_barrage")
+    assert isinstance(result["dc"], int)
+
+
 def test_action_event_carries_the_dc_once_it_is_revealed(svc):
     room_id, a, _ = seat_two(svc)
     state = svc.snapshot(room_id)

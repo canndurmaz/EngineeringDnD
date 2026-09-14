@@ -242,7 +242,7 @@ class GameService:
 
         self._enqueue_narration(room_id, player_id, action_seq, state, ability, result)
         return {"event_seq": action_seq, "outcome": result.outcome,
-                "natural": result.natural, "total": result.total, "dc": result.dc,
+                "natural": result.natural, "total": result.total, "dc": dc_public,
                 "changes": result.changes,
                 "events": self._room(room_id).events_since(action_seq - 1)}
 
