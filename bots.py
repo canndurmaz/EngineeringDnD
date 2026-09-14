@@ -158,33 +158,38 @@ def _most_hurt(state: dict, player_id: str) -> "str | None":
 
 # --- the policy --------------------------------------------------------------
 
-def choose_action(state: dict, player_id: str,
-                  catalog: Catalog) -> "tuple[str, str | None] | None":
-    """Pick one move for `player_id`: (ability_id, target_id), or None to pass.
+def decide(state: dict, player_id: str,
+           catalog: Catalog) -> "tuple[str, str | None, str]":
+    """The policy, and the branch it took: (ability_id, target_id, branch).
 
     Priorities, in order: keep people standing, keep the debt below the DC
     penalty, learn the weakness, buff the party, then hit the problem. Pure: it
     reads the snapshot and returns a choice, mutating nothing.
+
+    The branch name is the reason for the move, and it is what the bot says out
+    loud afterwards. It is returned rather than re-derived because a second
+    reading of the board could disagree with the first and put the wrong line in
+    the bot's mouth. A pass is the branch "pass" with no ability.
     """
     char = state["characters"].get(player_id)
     if char is None:
-        return None
+        return None, None, "pass"
     options = _legal_abilities(state, player_id, catalog)
     if not options:
-        return None                     # nothing affordable; pass the turn
+        return None, None, "pass"       # nothing affordable; pass the turn
 
     # 1. Somebody is below half stamina and this bot can heal.
     wounded = _most_hurt(state, player_id)
     if wounded is not None:
         healers = [a for a in options if _heals(a)]
         if healers:
-            return healers[0].id, wounded
+            return healers[0].id, wounded, "heal"
 
     # 2. Technical Debt is taxing every roll in the party.
     if state["party"]["tech_debt"] >= DEBT_THRESHOLD:
         menders = [a for a in options if _cuts_debt(a)]
         if menders:
-            return menders[0].id, None
+            return menders[0].id, None, "debt"
 
     # 3. Nobody knows the weakness yet, and knowing it is +2 for everyone.
     hazard = _active_hazard(state)
@@ -193,19 +198,87 @@ def choose_action(state: dict, player_id: str,
     if hazard is not None and "weakness" not in hazard.get("revealed", []):
         scouts = [a for a in options if _reveals(a)]
         if scouts:
-            return scouts[0].id, None
+            return scouts[0].id, None, "reveal"
 
     # 4. A party buff nobody is running yet.
     for ability in options:
         for condition in _party_buffs(ability):
             if condition_total(state, condition) == 0:
-                return ability.id, None
+                return ability.id, None, "buff"
 
     # 5. Otherwise hit it, hardest first. Ties break on id so a bot facing the
     #    same board twice makes the same choice twice.
     mods = _mods(char)
     best = min(options, key=lambda a: (-expected_damage(state, a, mods), a.id))
-    return best.id, None
+    return best.id, None, "attack"
+
+
+def choose_action(state: dict, player_id: str,
+                  catalog: Catalog) -> "tuple[str, str | None] | None":
+    """`decide` without the reason: (ability_id, target_id), or None to pass."""
+    ability_id, target_id, _ = decide(state, player_id, catalog)
+    return None if ability_id is None else (ability_id, target_id)
+
+
+# --- what a bot says about it ------------------------------------------------
+
+#: One short line per branch of `decide`, in the register of somebody who has
+#: done this before and would rather be doing something else. Several per branch
+#: so a table of bots does not read like a stuck tape.
+BOT_LINES = {
+    "heal": [
+        "You're taking too much of this. Patching you up.",
+        "Hold still. You're no use to anyone at zero.",
+        "Stopping the bleeding, then we carry on.",
+    ],
+    "debt": [
+        "We're carrying too much debt. Cleaning up.",
+        "Every roll is taxed until this is paid down.",
+        "The shortcuts are invoicing us. Settling some.",
+    ],
+    "reveal": [
+        "Scoping this before we swing at it.",
+        "Measuring first. I'd like to know what we're hitting.",
+        "Getting data on it. Guessing is the expensive option.",
+    ],
+    "buff": [
+        "Setting the team up before the next push.",
+        "Putting some process behind this one.",
+    ],
+    "attack": [
+        "Straight at it, then.",
+        "Nothing clever left. Applying pressure.",
+        "This is the largest thing I can do to it.",
+    ],
+    "pass": [
+        "Nothing I can afford this turn. Passing.",
+        "I've got nothing useful here. Over to you.",
+    ],
+}
+
+
+def turn_number(state: dict) -> int:
+    """A counter that goes up by one every turn, for rotating the lines.
+
+    Rounds restart the index, so the round has to be folded in or the same seat
+    would get the same line every round.
+    """
+    turn = state.get("turn") or {}
+    order = turn.get("order") or []
+    return max(0, int(turn.get("round", 1)) - 1) * max(1, len(order)) \
+        + int(turn.get("turn_index", 0))
+
+
+def bot_line(branch: str, turn: int) -> str:
+    """The line for this branch on this turn.
+
+    Rotation, not choice: Random(n).choice() over a three-item list returns the
+    same element for runs of consecutive n, which is how a bot ends up saying
+    the same sentence three turns running. Same reasoning as
+    narrator.fallback._pick, and the same fix.
+    """
+    options = BOT_LINES.get(branch) or BOT_LINES["pass"]
+    return options[turn % len(options)]
 
 
 # --- running the turn --------------------------------------------------------
@@ -327,14 +400,29 @@ class BotRunner:
             log.exception("bot runner could not read the DM gate for %s", room_id)
             return False
 
+    def _say(self, room_id: str, player_id: str, state: dict,
+             branch: str) -> None:
+        """One line of table talk explaining the move it is about to make.
+
+        Best effort: a bot that cannot get a word in still takes its turn. The
+        chat is commentary, and commentary must never be able to wedge the game.
+        """
+        try:
+            self.service.post_chat(room_id, player_id,
+                                   bot_line(branch, turn_number(state)))
+        except Exception:
+            log.info("bot %s could not speak", player_id, exc_info=True)
+
     def _play(self, room_id: str, player_id: str, state: dict) -> None:
-        choice = None
+        ability_id, target_id, branch = None, None, "pass"
         if state["characters"][player_id]["stamina"] > 0:
-            choice = choose_action(state, player_id, self.catalog)
-        if choice is None:
+            ability_id, target_id, branch = decide(state, player_id, self.catalog)
+        # Said before the roll, because it is the reason for the move and not a
+        # report of how it went -- that is the DM's job.
+        self._say(room_id, player_id, state, branch)
+        if ability_id is None:
             self.service.end_turn(room_id, player_id)
             return
-        ability_id, target_id = choice
         try:
             self.service.act(room_id, player_id, ability_id, target_id)
         except Exception:
