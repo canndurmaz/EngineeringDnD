@@ -1,10 +1,108 @@
 [
-  {"id": "car", "name": "Passenger Vehicle", "hint": "a mid-size electric passenger car"},
-  {"id": "aircraft", "name": "Aircraft", "hint": "a four-seat hybrid-electric trainer aircraft"},
-  {"id": "weapon_platform", "name": "Weapon Platform", "hint": "a vehicle-mounted remote weapon station"},
-  {"id": "spacecraft", "name": "Spacecraft", "hint": "a small satellite bus for low Earth orbit"},
-  {"id": "surgical_robot", "name": "Surgical Robot", "hint": "a seven-axis laparoscopic surgical manipulator"},
-  {"id": "robot_arm", "name": "Industrial Robot Arm", "hint": "a six-axis industrial pick-and-place arm"},
-  {"id": "submarine", "name": "Submersible", "hint": "a crewed shallow-water research submersible"},
-  {"id": "wind_turbine", "name": "Wind Turbine", "hint": "an offshore direct-drive wind turbine nacelle"}
+  {
+    "id": "car",
+    "name": "Passenger Vehicle",
+    "hint": "a mid-size electric passenger car",
+    "subsystems": [
+      {"id": "body", "name": "Body in White", "blurb": "The welded shell. Everything else hangs off it, so every change here is somebody else's change too."},
+      {"id": "battery", "name": "Battery Pack", "blurb": "Cells, busbars and a cooling plate. Heavy, expensive, and the reason for half the crash load cases."},
+      {"id": "drive", "name": "Drive Unit", "blurb": "Motor, inverter and reduction gearbox. Quiet until it is not."},
+      {"id": "chassis", "name": "Chassis", "blurb": "Suspension, steering and brakes. Where the ride reviews are won and lost."},
+      {"id": "hvac", "name": "Thermal & HVAC", "blurb": "One loop keeps the cabin comfortable and the pack alive. It cannot always do both."},
+      {"id": "electronics", "name": "Vehicle Electronics", "blurb": "Harness, controllers and the bus they argue over."},
+      {"id": "interior", "name": "Interior", "blurb": "Seats, trim and the display everyone judges the car by."}
+    ]
+  },
+  {
+    "id": "aircraft",
+    "name": "Aircraft",
+    "hint": "a four-seat hybrid-electric trainer aircraft",
+    "subsystems": [
+      {"id": "airframe", "name": "Airframe", "blurb": "Wing, fuselage and empennage. Fatigue life is written here and nowhere else."},
+      {"id": "propulsion", "name": "Propulsion", "blurb": "Engine, generator and propeller. It carries the weight penalty for everybody."},
+      {"id": "avionics", "name": "Avionics", "blurb": "Displays, radios and navigation. Certification reads this box very slowly."},
+      {"id": "controls", "name": "Flight Controls", "blurb": "Surfaces, linkages and trim. Feel is a requirement even when nobody writes it down."},
+      {"id": "gear", "name": "Landing Gear", "blurb": "Struts, wheels and brakes. Two seconds of work, every flight, at full load."},
+      {"id": "cabin", "name": "Cabin", "blurb": "Seats, restraints and egress. The part the pilot actually touches."}
+    ]
+  },
+  {
+    "id": "weapon_platform",
+    "name": "Weapon Platform",
+    "hint": "a vehicle-mounted remote weapon station",
+    "subsystems": [
+      {"id": "mount", "name": "Mount & Cradle", "blurb": "The structure that takes recoil into the vehicle without taking the roof with it."},
+      {"id": "drives", "name": "Traverse Drives", "blurb": "Azimuth and elevation servos. Slew rate and backlash decide whether it can track."},
+      {"id": "sights", "name": "Sighting System", "blurb": "Day and thermal channels with a laser rangefinder. Boresight drifts if you let it."},
+      {"id": "feed", "name": "Ammunition Feed", "blurb": "Chute, links and the stoppage clearance nobody wants to demonstrate."},
+      {"id": "fcs", "name": "Fire Control", "blurb": "Ballistic solution, stabilisation and the interlocks that keep it legal."},
+      {"id": "power", "name": "Power & Signal", "blurb": "Slip ring, harness and the vehicle bus it has to share."}
+    ]
+  },
+  {
+    "id": "spacecraft",
+    "name": "Spacecraft",
+    "hint": "a small satellite bus for low Earth orbit",
+    "subsystems": [
+      {"id": "bus", "name": "Bus Structure", "blurb": "Panels and the primary load path. It has one launch to survive and years to sit still."},
+      {"id": "power", "name": "Power", "blurb": "Arrays, battery and regulation. Everything downstream is a negotiation over watts."},
+      {"id": "thermal", "name": "Thermal", "blurb": "Radiators, heaters and coatings. Nothing convects up there, so it all has to radiate."},
+      {"id": "comms", "name": "Communications", "blurb": "Transponder and antennas. If this is down, nothing else can tell you it is down."},
+      {"id": "adcs", "name": "Attitude Control", "blurb": "Wheels, magnetorquers and star tracker. Pointing budget lives here."},
+      {"id": "payload", "name": "Payload", "blurb": "The instrument the whole bus exists to carry, and the only part the customer names."},
+      {"id": "obc", "name": "Onboard Computer", "blurb": "Flight software, watchdog and the safe mode you hope never runs."}
+    ]
+  },
+  {
+    "id": "surgical_robot",
+    "name": "Surgical Robot",
+    "hint": "a seven-axis laparoscopic surgical manipulator",
+    "subsystems": [
+      {"id": "arm", "name": "Manipulator Arm", "blurb": "Seven joints and the remote centre they have to hold while the patient breathes."},
+      {"id": "instrument", "name": "Instrument Interface", "blurb": "Sterile adapter, cable drives and tool changeover between cases."},
+      {"id": "console", "name": "Surgeon Console", "blurb": "Grips, pedals and stereo view. Latency here is felt, not measured."},
+      {"id": "vision", "name": "Vision System", "blurb": "Endoscope, illumination and image chain. The only eyes in the abdomen."},
+      {"id": "safety", "name": "Safety Chain", "blurb": "Force limits, watchdogs and the hardware stop that outranks the software."},
+      {"id": "sterile", "name": "Sterile Barrier", "blurb": "Drapes and seals. It has to hold through a four-hour case and an autoclave cycle."}
+    ]
+  },
+  {
+    "id": "robot_arm",
+    "name": "Industrial Robot Arm",
+    "hint": "a six-axis industrial pick-and-place arm",
+    "subsystems": [
+      {"id": "structure", "name": "Arm Structure", "blurb": "Castings and the reach-versus-stiffness argument that set the whole envelope."},
+      {"id": "joints", "name": "Joint Drives", "blurb": "Servo motors, gearboxes and brakes. Backlash shows up as repeatability."},
+      {"id": "endeffector", "name": "End Effector", "blurb": "Gripper and tool plate. The only part that touches the product."},
+      {"id": "controller", "name": "Controller", "blurb": "Motion planning, kinematics and the teach pendant people actually use."},
+      {"id": "sensing", "name": "Sensing", "blurb": "Encoders, force sensing and whatever vision the cell needs to find the part."},
+      {"id": "cell", "name": "Cell Integration", "blurb": "Fencing, conveyors and PLC handshakes. The arm is never the whole job."}
+    ]
+  },
+  {
+    "id": "submarine",
+    "name": "Submersible",
+    "hint": "a crewed shallow-water research submersible",
+    "subsystems": [
+      {"id": "hull", "name": "Pressure Hull", "blurb": "The sphere and its penetrators. One crew, one boundary, no second chance."},
+      {"id": "ballast", "name": "Ballast & Trim", "blurb": "Tanks, pumps and droppable weight. It decides whether you come back up."},
+      {"id": "propulsion", "name": "Propulsion", "blurb": "Thrusters and their controllers, working against a current nobody modelled."},
+      {"id": "lifesupport", "name": "Life Support", "blurb": "Scrubbers, oxygen and the dive duration everything else is sized against."},
+      {"id": "power", "name": "Power", "blurb": "Battery pods and distribution, sealed against seawater for the whole dive."},
+      {"id": "payloadbay", "name": "Science Payload", "blurb": "Manipulator, sampling gear and lights. The reason the dive was funded."}
+    ]
+  },
+  {
+    "id": "wind_turbine",
+    "name": "Wind Turbine",
+    "hint": "an offshore direct-drive wind turbine nacelle",
+    "subsystems": [
+      {"id": "rotor", "name": "Rotor & Blades", "blurb": "Three blades and a hub, turning twenty years of fatigue cycles into revenue."},
+      {"id": "generator", "name": "Direct-Drive Generator", "blurb": "A very large, very slow machine with an air gap that must not close."},
+      {"id": "converter", "name": "Power Converter", "blurb": "Back-to-back converter and transformer, and the grid code they have to satisfy."},
+      {"id": "pitchyaw", "name": "Pitch & Yaw", "blurb": "Blade pitch and nacelle yaw. Both are also the brakes when the wind is wrong."},
+      {"id": "nacelle", "name": "Nacelle & Bedplate", "blurb": "The frame and cover taking every load into the tower, in salt air."},
+      {"id": "control", "name": "Turbine Control", "blurb": "Supervisory control, condition monitoring and the alarms an operator sees onshore."}
+    ]
+  }
 ]

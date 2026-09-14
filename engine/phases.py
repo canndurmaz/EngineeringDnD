@@ -34,7 +34,7 @@ def load_archetypes(data_dir: str = "data") -> list:
 
 
 def _hazard_from_template(template: dict, phase_index: int, ordinal: int,
-                          is_boss: bool) -> dict:
+                          is_boss: bool, subsystem: str = "") -> dict:
     if is_boss:
         max_severity = _BOSS_SEVERITY_BASE + _BOSS_SEVERITY_STEP * phase_index
         dc = _BOSS_DC_BASE + phase_index
@@ -55,20 +55,50 @@ def _hazard_from_template(template: dict, phase_index: int, ordinal: int,
         "revealed": [],
         "defeated": False,
         "is_boss": is_boss,
+        # Where in the machine the problem lives. "" means the campaign was
+        # built without an archetype's subsystem list -- the map then simply
+        # has nothing to light up, which is what an old room looks like.
+        "subsystem": subsystem,
     }
 
 
-def build_campaign(dice: Dice, templates: dict) -> list:
-    """Build every hazard for all five phases. Boss is always last in its phase."""
+def _deal_subsystems(dice: Dice, subsystem_ids: list, count: int) -> list:
+    """`count` subsystem ids, dealt from a shuffled deck so one phase spreads
+    across the machine instead of piling into whichever node sorts first.
+
+    The shuffle is the injected Dice, so a seed still reproduces the placement
+    exactly; the deck is re-cut per phase so a long phase wraps round rather
+    than running out.
+    """
+    if not subsystem_ids:
+        return [""] * count
+    deck = list(subsystem_ids)
+    dice.shuffle(deck)
+    return [deck[index % len(deck)] for index in range(count)]
+
+
+def build_campaign(dice: Dice, templates: dict,
+                   subsystems: "list | None" = None) -> list:
+    """Build every hazard for all five phases. Boss is always last in its phase.
+
+    `subsystems` is the archetype's subsystem list (dicts with an "id"), and
+    every hazard is placed in one of them. Omitting it is legal and leaves the
+    placement blank -- the ruleset does not depend on it.
+    """
+    subsystem_ids = [s["id"] for s in (subsystems or [])]
     hazards: list = []
     for phase_index, (phase_id, _) in enumerate(PHASES):
         pool = list(templates[phase_id]["normal"])
         dice.shuffle(pool)
         count = dice.randint(2, 3)
+        # count normals plus the boss, all placed in one deal so the whole
+        # phase is spread over the machine.
+        placed = _deal_subsystems(dice, subsystem_ids, count + 1)
         for ordinal, template in enumerate(pool[:count]):
-            hazards.append(_hazard_from_template(template, phase_index, ordinal, False))
+            hazards.append(_hazard_from_template(template, phase_index, ordinal,
+                                                 False, placed[ordinal]))
         hazards.append(_hazard_from_template(
-            templates[phase_id]["boss"], phase_index, count, True))
+            templates[phase_id]["boss"], phase_index, count, True, placed[count]))
     return hazards
 
 
