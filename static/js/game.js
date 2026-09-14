@@ -6,6 +6,8 @@ let me = null;
    /api/classes -- the client invents neither. */
 let STATS = [];
 let PRIMARY = {};
+let CLASS_NAMES = {};          // class_id -> the display name /api/classes gives
+let lastState = null;          // the most recent snapshot, for naming actors
 let levelStat = null;          // what this player has chosen, if anything
 
 const el = (id) => document.getElementById(id);
@@ -147,6 +149,51 @@ function entryFor(seq) {
   return node;
 }
 
+/* One line of story per event. Every one of these payloads is untrusted --
+   display names are player-typed and hazard names are written by the model --
+   so every interpolation goes through esc(), exactly like the panels above.
+   A kind with no entry here is silently dropped: `campaign_updated` is
+   bookkeeping the player already sees, because the hazard names themselves
+   change. */
+const className = (id) =>
+  CLASS_NAMES[id] || String(id ?? "").replace(/_/g, " ");
+
+const actorName = (event) => {
+  const char = lastState && lastState.characters
+    ? lastState.characters[event.actor] : null;
+  return char ? char.name : null;
+};
+
+const OVER = {
+  win: "It ships. The programme is complete.",
+  lose_budget: "The budget ran out. The programme is cancelled.",
+  lose_schedule: "The schedule ran out. The programme is cancelled.",
+  lose_burnout: "The whole team burned out. The programme stalls.",
+};
+
+const LABELS = {
+  hazard_attack: () => "The problem bites back.",
+  game_started: () => "The programme begins.",
+  hazard_defeated: (e) =>
+    e.name ? `${esc(e.name)} closed.` : "Problem closed.",
+  phase_advanced: (e) => e.phase
+    ? `${esc(String(e.phase).replace(/_/g, " "))} gate cleared.`
+    : "Phase gate cleared.",
+  game_over: (e) => esc(OVER[e.result] || "The programme has ended."),
+  player_joined: (e) => e.name
+    ? `${esc(e.name)} joins as ${esc(className(e.class_id))}.`
+    : "A new engineer joins.",
+  passed: (e) => {
+    const who = actorName(e);
+    return who ? `${esc(who)} passes.` : "Turn passed.";
+  },
+};
+
+const logLine = (event) => {
+  const build = LABELS[event.kind];
+  return build ? build(event) : null;
+};
+
 function renderEvent(event) {
   if (event.seq > lastSeq) lastSeq = event.seq;
 
@@ -205,21 +252,11 @@ function renderEvent(event) {
     return;
   }
 
-  const labels = {
-    hazard_attack: "The problem bites back.",
-    hazard_defeated: "Problem closed.",
-    phase_advanced: "Phase gate cleared.",
-    game_over: "The programme has ended.",
-    player_joined: "A new engineer joins.",
-    game_started: "The programme begins.",
-    campaign_updated: "The plan is revised.",
-    passed: "Turn passed.",
-  };
-  if (labels[event.kind]) {
+  const line = logLine(event);
+  if (line) {
     const node = entryFor(event.seq);
     node.classList.remove("pending");
-    node.insertAdjacentHTML("beforeend",
-      `<div class="roll">${labels[event.kind]}</div>`);
+    node.insertAdjacentHTML("beforeend", `<div class="roll">${line}</div>`);
   }
 }
 
@@ -227,6 +264,7 @@ function renderEvent(event) {
 
 async function refresh() {
   const state = await api(`/api/rooms/${ROOM}/state`);
+  lastState = state;
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
   renderLevelChoice(state);
   el("dm-badge").textContent = `DM: ${state.narrator ?? "template"}`;
@@ -297,4 +335,5 @@ el("pass").addEventListener("click", async () => {
 api("/api/classes").then((data) => {
   STATS = data.stats || [];
   PRIMARY = Object.fromEntries((data.classes || []).map((c) => [c.id, c.primary]));
+  CLASS_NAMES = Object.fromEntries((data.classes || []).map((c) => [c.id, c.name]));
 }).catch(() => {}).then(() => refresh()).then(connect);
