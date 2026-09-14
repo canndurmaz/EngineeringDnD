@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import queue
 import secrets
+import stat
 from pathlib import Path
 
 import segno
@@ -43,11 +45,26 @@ def _text(value) -> str:
     return str(value or "").strip()
 
 
-def _secret_key() -> str:
-    path = Path("instance") / "secret.key"
+def _secret_key(root: "str | Path" = "instance") -> str:
+    """The key that signs the session cookie.
+
+    That signature is the only identity check in the app, so the file is the
+    whole security boundary: anyone who can read it can forge a seat for any
+    room and any player. Created 0600 so a shell account on the host cannot.
+    """
+    path = Path(root) / "secret.key"
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
+        # touch first: writing then chmod-ing leaves a window in which the key
+        # is on disk world-readable.
+        path.touch(mode=0o600)
         path.write_text(secrets.token_urlsafe(48))
+    if os.name != "nt":
+        try:                                # tighten a key written by an older build
+            if stat.S_IMODE(path.stat().st_mode) != 0o600:
+                os.chmod(path, 0o600)
+        except OSError:                     # a read-only mount is not fatal
+            pass
     return path.read_text().strip()
 
 
