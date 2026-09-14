@@ -1,1 +1,47 @@
-{% extends "base.html" %}{% block content %}<p>Loading…</p>{% endblock %}
+{% extends "base.html" %}
+{% block subtitle %}
+<span class="num" id="room-label">{{ room.name }} · {{ room_id }}</span>
+<span class="num" id="phase-label"></span>
+{% endblock %}
+{% block content %}
+<div class="table-grid">
+
+  <section class="panel" id="party-panel">
+    <h2>Party</h2>
+    <div id="party"></div>
+  </section>
+
+  <section>
+    <div class="panel">
+      <h2>Programme</h2>
+      <p id="premise" class="roll">The DM is drafting your programme…</p>
+      <div id="log" style="margin-top:12px"></div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <h2>Your move <span id="turn-hint" class="roll"></span></h2>
+      <div class="abilities" id="abilities"></div>
+      <button id="pass" class="ghost" style="margin-top:12px">Pass the turn</button>
+      <p id="action-error" class="debt" role="alert"></p>
+    </div>
+  </section>
+
+  <section>
+    <div class="panel" id="hazard">
+      <h2>Open problem</h2>
+      <div id="hazard-body"><p class="roll">None active.</p></div>
+    </div>
+
+    <div class="panel" id="rail" style="margin-top:16px">
+      <h2>Programme health</h2>
+      <div id="rail-body"></div>
+      <div class="phase-track" id="phase-track"></div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>window.ROOM_ID = {{ room_id | tojson }};</script>
+<script src="{{ url_for('static', filename='js/game.js') }}"></script>
+{% endblock %}
