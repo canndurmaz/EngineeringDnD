@@ -13,7 +13,8 @@ from engine.dice import Dice
 from engine.effects import expire_conditions
 from engine.phases import (PHASES, advance_phase, build_campaign,
                            check_end_conditions, next_hazard_id, phase_cleared)
-from engine.rules import RuleError, advance_turn, hazard_attack, resolve_action
+from engine.rules import (RuleError, advance_turn, end_of_round,
+                          hazard_attack, resolve_action)
 from narrator.genesis import genesis_jobs
 from storage.index_db import IndexDB
 from storage.room_db import RoomDB, RoomNotFound
@@ -470,6 +471,12 @@ class GameService:
                 expire_conditions(state)
                 state["party"]["schedule"] -= 1
                 event_seqs.append(room.append_event("hazard_attack", None, attack))
+                # A gate boss that grows while it is still standing does so once
+                # per round, here, and not on a fumble's extra attack.
+                escalated = end_of_round(state)
+                if escalated:
+                    event_seqs.append(room.append_event(
+                        "hazard_rule", None, escalated))
 
             self._after_turn(room_id, room, state, event_seqs)
             room.save_state(state)              # commit BEFORE queueing narration
@@ -506,6 +513,9 @@ class GameService:
                 expire_conditions(state)
                 state["party"]["schedule"] -= 1
                 room.append_event("hazard_attack", None, attack)
+                escalated = end_of_round(state)
+                if escalated:
+                    room.append_event("hazard_rule", None, escalated)
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)

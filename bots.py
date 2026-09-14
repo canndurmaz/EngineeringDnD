@@ -23,6 +23,7 @@ import time
 
 from engine.classes import Ability, Catalog
 from engine.effects import condition_total
+from engine.hazard_rules import damage_floor, neutralises
 from engine.rules import RuleError, validate_action
 
 log = logging.getLogger(__name__)
@@ -110,6 +111,12 @@ def expected_damage(state: dict, ability: Ability, mods: dict) -> float:
                 total += pool * int(spec["per_party_focus"])
         else:
             total += _dice_mean(spec, mods)
+    # A gate boss that refuses chip damage makes a small hit worth almost
+    # nothing, and a policy that cannot see that keeps choosing it. The mean
+    # itself is left alone unless the rule would actually blunt it.
+    landed = round(total)
+    if total > 0 and damage_floor(hazard, landed) != landed:
+        return float(damage_floor(hazard, landed))
     return total
 
 
@@ -177,6 +184,11 @@ def decide(state: dict, player_id: str,
     options = _legal_abilities(state, player_id, catalog)
     if not options:
         return None, None, "pass"       # nothing affordable; pass the turn
+    # A boss rule can cancel a move outright. Spending the turn to watch nothing
+    # happen is the trap the rule exists to set, and a bot should read the card.
+    hazard_now = _active_hazard(state)
+    allowed = [a for a in options if not neutralises(hazard_now, a)]
+    options = allowed or options
 
     # 1. Somebody is below half stamina and this bot can heal.
     wounded = _most_hurt(state, player_id)

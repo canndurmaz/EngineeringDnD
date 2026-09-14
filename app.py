@@ -83,6 +83,10 @@ def _public_hazard(state: dict) -> "dict | None":
         "attack_type": hazard["attack_type"] if "next_attack" in revealed else None,
         "weakness": hazard["weakness"] if "weakness" in revealed else None,
         "dc": hazard["dc"] if "dc" in revealed else None,
+        # The boss rule is never hidden. It is the one thing about a gate that
+        # the party is entitled to know before they walk into it -- a rule the
+        # player cannot see is just an unexplained failure.
+        "rule": hazard.get("rule") or None,
     }
 
 

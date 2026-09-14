@@ -78,12 +78,29 @@ function renderParty(state) {
   }).join("");
 }
 
+/* A gate boss carries one special rule and the player is always told it: the
+   whole point is that they can see the trap before they step in it. The stats a
+   rule punishes are read straight off the same payload by renderAbilities, so
+   the card and the buttons can never disagree about what is being penalised. */
+const bossRule = (state) =>
+  (state && state.hazard && state.hazard.rule) ? state.hazard.rule : null;
+
+const penalisedStats = (state) => {
+  const rule = bossRule(state);
+  const stats = rule && rule.params ? rule.params.stats : null;
+  return Array.isArray(stats) ? stats : [];
+};
+
 function renderHazard(state) {
   const h = state.hazard;
   if (!h) { el("hazard-body").innerHTML = "<p class='roll'>None active.</p>"; return; }
+  const rule = h.rule
+    ? `<p class="boss-rule"><span class="boss-rule-tag">special rule</span>
+       ${esc(h.rule.text || h.rule.id || "")}</p>` : "";
   el("hazard-body").innerHTML = `
     <p style="font-weight:600;margin:0">${esc(h.name)}${h.is_boss ? " ⚑" : ""}</p>
     <p class="role" style="margin:4px 0 10px">${esc(h.description)}</p>
+    ${rule}
     <div class="num" style="font-size:12px">${h.severity}/${h.max_severity} severity</div>
     ${bar(h.severity, h.max_severity, "severity")}
     <div class="roll" style="margin-top:10px">
@@ -143,7 +160,12 @@ function renderAbilities(state) {
     return;
   }
 
+  const penalised = penalisedStats(state);
   el("abilities").innerHTML = me.abilities.map((a) => {
+    const hit = penalised.includes(a.stat);
+    const rule = bossRule(state);
+    const penalty = hit && rule && rule.params && rule.params.penalty
+      ? Number(rule.params.penalty) : 4;
     let why = "";
     if (gated) why = DM_WRITING_WHY;
     else if (lobby) why = "the programme hasn't started";
@@ -151,9 +173,11 @@ function renderAbilities(state) {
     else if (!mine) why = "not your turn";
     else if (me.focus < a.focus_cost) why = `needs ${a.focus_cost} focus, you have ${me.focus}`;
     else if (me.stamina <= 0) why = "you are burned out";
-    return `<button class="ability" data-ability="${a.id}" ${why ? "disabled" : ""}>
+    return `<button class="ability${hit ? " penalised" : ""}" data-ability="${a.id}"
+      ${why ? "disabled" : ""}>
       <span style="font-weight:600">${esc(a.name)}</span>
-      <span class="cost"> ${a.focus_cost}F · ${esc(a.stat)}</span>
+      <span class="cost"> ${a.focus_cost}F · ${esc(a.stat)}${
+        hit ? `<span class="penalty">−${esc(String(penalty))}</span>` : ""}</span>
       <span class="why">${esc(why || a.flavor)}</span>
     </button>`;
   }).join("");
@@ -419,6 +443,9 @@ const LABELS = {
     : "A bot takes a seat.",
   bot_removed: (e) => e.name ? `${esc(e.name)} powers down.` : "A bot stands up.",
   dm_skipped: () => "The table moves on without the DM.",
+  hazard_rule: (e) => e.dc
+    ? `The gate hardens. Difficulty is now ${esc(String(e.dc))}.`
+    : "The gate hardens.",
   passed: (e) => {
     const who = actorName(e);
     return who ? `${esc(who)} passes.` : "Turn passed.";
@@ -540,7 +567,7 @@ async function connect() {
   source.onmessage = () => {};
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
-   "campaign_updated", "passed", "room_created", "interlude",
+   "campaign_updated", "passed", "room_created", "interlude", "hazard_rule",
    "bot_added", "bot_removed", "dm_skipped", "chat"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);

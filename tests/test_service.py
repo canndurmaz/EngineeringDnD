@@ -374,3 +374,57 @@ def test_no_queue_means_no_crash_when_a_phase_clears(svc):
     assert svc.queue is None
     svc._force_clear_phase(room_id)
     assert svc.snapshot(room_id)["room"]["phase_index"] == 1
+
+
+# --- gate-boss rules through the service ------------------------------------
+
+def _walk_to_boss(svc, room_id):
+    """Defeat everything in this phase until the gate boss is the active one."""
+    while True:
+        state = svc.snapshot(room_id)
+        hazard = next(h for h in state["hazards"]
+                      if h["id"] == state["active_hazard_id"])
+        if hazard["is_boss"]:
+            return hazard
+        svc._force_defeat_active_hazard(room_id)
+
+
+def _dc(svc, room_id):
+    state = svc.snapshot(room_id)
+    return next(h["dc"] for h in state["hazards"]
+                if h["id"] == state["active_hazard_id"])
+
+
+def test_an_escalating_boss_hardens_once_per_completed_round(svc):
+    room_id, a, b = seat_two(svc)
+    for _ in range(3):                      # Requirements -> Integration
+        svc._force_clear_phase(room_id)
+    boss = _walk_to_boss(svc, room_id)
+    assert boss["rule"]["id"] == "escalating"
+    base = _dc(svc, room_id)
+    for round_number in range(1, 4):
+        svc.end_turn(room_id, a["player_id"])
+        assert _dc(svc, room_id) == base + round_number - 1   # mid-round: no change
+        svc.end_turn(room_id, b["player_id"])                 # round completes
+        assert _dc(svc, room_id) == base + round_number
+
+
+def test_the_hardening_is_announced_to_the_table(svc):
+    room_id, a, b = seat_two(svc)
+    for _ in range(3):
+        svc._force_clear_phase(room_id)
+    _walk_to_boss(svc, room_id)
+    svc.end_turn(room_id, a["player_id"])
+    events = svc.end_turn(room_id, b["player_id"])["events"]
+    hardened = [e for e in events if e["kind"] == "hazard_rule"]
+    assert hardened and hardened[0]["payload"]["rule"] == "escalating"
+
+
+def test_an_ordinary_boss_never_hardens(svc):
+    room_id, a, b = seat_two(svc)
+    _walk_to_boss(svc, room_id)             # Requirements: no_descope, not escalating
+    base = _dc(svc, room_id)
+    for _ in range(3):
+        svc.end_turn(room_id, a["player_id"])
+        svc.end_turn(room_id, b["player_id"])
+    assert _dc(svc, room_id) == base
