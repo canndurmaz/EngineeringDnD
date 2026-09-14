@@ -177,6 +177,118 @@ function renderLevelChoice(state) {
     <p class="roll" id="level-choice-error" role="alert"></p>`;
 }
 
+/* --- the system map ------------------------------------------------------- */
+
+/* The dungeon is the architecture: one node per subsystem of the machine the
+   party is designing, coloured by where this phase's work sits. The SVG is
+   generated here rather than shipped as a file so it can follow the state, and
+   drawn on a fixed two-column grid so a node never moves between renders --
+   only its colour changes.
+
+   Nothing here comes from a hazard: /state's `map` carries subsystem names and
+   a status word, never a DC, a weakness or an unrevealed problem's name. */
+
+const MAP_COLS = 2;          /* two columns reads at 400px; more does not */
+const MAP_W = 140, MAP_H = 46, MAP_GX = 16, MAP_GY = 14;
+
+/* At most two lines per node, so a long name wraps instead of overflowing the
+   box. Words after the second line are dropped with an ellipsis. */
+function nodeLines(name) {
+  const words = String(name || "").split(/\s+/).filter(Boolean);
+  if (words.length < 2) return [words.join(" ")];
+  const half = Math.ceil(words.length / 2);
+  return [words.slice(0, half).join(" "), words.slice(half).join(" ")];
+}
+
+function renderMap(state) {
+  const box = el("map-body");
+  if (!box) return;
+  const nodes = ((state.map || {}).nodes) || [];
+  const caption = el("map-active");
+  if (!nodes.length) {
+    box.innerHTML = "";
+    if (caption) caption.textContent = "";
+    return;
+  }
+  const rows = Math.ceil(nodes.length / MAP_COLS);
+  const width = MAP_COLS * MAP_W + (MAP_COLS - 1) * MAP_GX;
+  const height = rows * MAP_H + (rows - 1) * MAP_GY;
+
+  const cells = nodes.map((n, i) => {
+    const x = (i % MAP_COLS) * (MAP_W + MAP_GX);
+    const y = Math.floor(i / MAP_COLS) * (MAP_H + MAP_GY);
+    const lines = nodeLines(n.name);
+    const first = lines.length > 1 ? MAP_H / 2 - 3 : MAP_H / 2 + 4;
+    const text = lines.map((line, k) =>
+      `<tspan x="${MAP_W / 2}" y="${first + k * 12}">${esc(line)}</tspan>`).join("");
+    return `<g class="node ${esc(n.status)}" transform="translate(${x},${y})">
+      <title>${esc(n.name)} — ${esc(n.blurb)}</title>
+      <rect width="${MAP_W}" height="${MAP_H}" rx="4"></rect>
+      <text text-anchor="middle">${text}</text>
+    </g>`;
+  }).join("");
+
+  /* A faint spine down the middle, so it reads as one machine rather than a
+     row of unrelated boxes. Decoration only; it carries no state. */
+  const spine = `<line class="spine" x1="${width / 2}" y1="0"
+    x2="${width / 2}" y2="${height}"></line>`;
+
+  box.innerHTML = `<svg class="schematic-svg" viewBox="0 0 ${width} ${height}"
+    role="img" aria-label="System map" preserveAspectRatio="xMidYMid meet">
+    ${spine}${cells}</svg>`;
+
+  if (caption) {
+    const active = nodes.find((n) => n.status === "active");
+    /* textContent, not innerHTML: the hazard name is written by the model. */
+    caption.textContent = state.hazard
+      ? `${state.hazard.name}${active ? ` · ${active.name}` : ""}`
+      : "No open problem.";
+  }
+}
+
+/* --- table talk ----------------------------------------------------------- */
+
+let chatSince = 0;             /* the highest message id already on the page */
+
+/* Chat bodies are player-typed and reach the DOM, so every field goes through
+   esc() -- the same rule as every other panel here. */
+function appendChat(message) {
+  const log = el("chat-log");
+  if (!log) return;
+  const node = document.createElement("div");
+  node.className = "chat-msg";
+  node.innerHTML = `<span class="chat-who">${esc(message.name)}${
+    message.is_bot ? '<span class="chip-bot">BOT</span>' : ""}</span>
+    <span class="chat-body">${esc(message.body)}</span>`;
+  log.append(node);
+  log.scrollTop = log.scrollHeight;
+}
+
+function showChat(message) {
+  const id = Number(message.id ?? message.message_id ?? 0);
+  if (id && id <= chatSince) return;         /* already shown; SSE and the
+                                                backfill can both deliver it */
+  if (id) chatSince = id;
+  appendChat(message);
+}
+
+/* The history, once, before the stream opens. */
+async function pullChat() {
+  try {
+    const data = await api(`/api/rooms/${ROOM}/chat?since=${chatSince}`);
+    (data.messages || []).forEach(showChat);
+  } catch (error) { /* the stream will carry anything said from now on */ }
+}
+
+function renderChatSeat(state) {
+  const input = el("chat-input"), send = el("chat-send"), note = el("chat-note");
+  if (!input || !send) return;
+  const seated = !!state.you;
+  input.disabled = !seated;
+  send.disabled = !seated;
+  if (note) note.textContent = seated ? "" : "Take a seat to talk at this table.";
+}
+
 /* --- the annunciator ------------------------------------------------------ */
 
 /* The one place that answers "what should I do right now?". Everything it says
@@ -323,6 +435,10 @@ function renderEvent(event) {
 
   if (event.kind === "premise") { el("premise").textContent = event.premise; return; }
 
+  /* Chat lands in its own panel, not the story log: it is what the table said,
+     not what happened in the game. */
+  if (event.kind === "chat") { showChat(event); return; }
+
   if (event.kind === "narration_chunk") {
     const node = entryFor(event.event_seq);
     let prose = node.querySelector(".prose");
@@ -404,7 +520,8 @@ async function refresh() {
   const state = await api(`/api/rooms/${ROOM}/state`);
   lastState = state;
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
-  renderLevelChoice(state); renderAnnunciator(state);
+  renderLevelChoice(state); renderMap(state); renderChatSeat(state);
+  renderAnnunciator(state);
   el("dm-badge").textContent = `DM: ${state.narrator ?? "template"}`;
   if (state.room.premise) el("premise").textContent = state.room.premise;
   return state;
@@ -424,10 +541,13 @@ async function connect() {
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
    "campaign_updated", "passed", "room_created", "interlude",
-   "bot_added", "bot_removed", "dm_skipped"].forEach((kind) => {
+   "bot_added", "bot_removed", "dm_skipped", "chat"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);
       renderEvent(event);
+      /* A line of talk changes no board state, so it is not worth a round trip
+         for a fresh snapshot. */
+      if (event.kind === "chat") return;
       if (event.kind !== "narration_chunk") refresh();
     });
   });
@@ -498,9 +618,33 @@ el("pass").addEventListener("click", async () => {
   catch (error) { el("action-error").textContent = error.message; }
 });
 
+/* Enter sends, because the input is the form's only field. The keydown guard is
+   not about this handler: it stops a key pressed while typing from ever
+   reaching a document-level listener, so no future ability shortcut can fire
+   because somebody typed a message containing its letter. */
+el("chat-input").addEventListener("keydown", (event) => event.stopPropagation());
+
+el("chat-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = el("chat-input");
+  const body = input.value.trim();
+  if (!body || input.disabled) return;
+  el("chat-note").textContent = "";
+  input.value = "";                    /* cleared first: the line comes back
+                                          over the stream, like everyone else's */
+  try {
+    await api(`/api/rooms/${ROOM}/chat`, {
+      method: "POST", body: JSON.stringify({ body }),
+    });
+  } catch (error) {
+    input.value = body;                /* nothing was said; give it back */
+    el("chat-note").textContent = error.message;
+  }
+});
+
 /* The six stat names come from the server, not a list hard-coded here. */
 api("/api/classes").then((data) => {
   STATS = data.stats || [];
   PRIMARY = Object.fromEntries((data.classes || []).map((c) => [c.id, c.primary]));
   CLASS_NAMES = Object.fromEntries((data.classes || []).map((c) => [c.id, c.name]));
-}).catch(() => {}).then(() => refresh()).then(connect);
+}).catch(() => {}).then(() => refresh()).then(pullChat).then(connect);
