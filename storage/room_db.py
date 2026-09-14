@@ -289,6 +289,23 @@ class RoomDB:
             out.append(row)
         return out
 
+    def recent_events(self, kind: str, limit: int = 5) -> list:
+        """The most recent events of one kind, newest first.
+
+        The narrator's memory is read through here: `narration` events are
+        already durable in this table, so remembering the story needs no new
+        schema and no second store that could disagree with the log.
+        """
+        rows = self.connect().execute(
+            "SELECT * FROM events WHERE kind = ? ORDER BY seq DESC LIMIT ?",
+            (kind, limit))
+        out = []
+        for row in rows:
+            row = dict(row)
+            row["payload"] = json.loads(row["payload"])
+            out.append(row)
+        return out
+
     def latest_seq(self) -> int:
         row = self.connect().execute("SELECT MAX(seq) FROM events").fetchone()
         return row[0] or 0

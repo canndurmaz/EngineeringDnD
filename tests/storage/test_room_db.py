@@ -380,3 +380,28 @@ def test_concurrent_readers_never_see_a_torn_state(tmp_path, room):
     for t in threads:
         t.join(timeout=30)
     assert torn == []
+
+
+# --- recent_events: the narrator's memory ------------------------------------
+
+def test_recent_events_returns_only_the_asked_for_kind(tmp_path):
+    db = RoomDB.create(str(tmp_path), "mem001", "Kestrel", "aircraft", 1)
+    db.append_event("action", "p1", {"n": 1})
+    db.append_event("narration", None, {"text": "one"})
+    db.append_event("action", "p2", {"n": 2})
+    db.append_event("narration", None, {"text": "two"})
+    assert [e["payload"]["text"] for e in db.recent_events("narration")] == \
+        ["two", "one"]
+
+
+def test_recent_events_is_newest_first_and_honours_the_limit(tmp_path):
+    db = RoomDB.create(str(tmp_path), "mem002", "Kestrel", "aircraft", 1)
+    for i in range(5):
+        db.append_event("narration", None, {"text": str(i)})
+    assert [e["payload"]["text"] for e in db.recent_events("narration", 2)] == \
+        ["4", "3"]
+
+
+def test_recent_events_on_a_fresh_room_is_empty(tmp_path):
+    db = RoomDB.create(str(tmp_path), "mem003", "Kestrel", "aircraft", 1)
+    assert db.recent_events("narration") == []

@@ -475,6 +475,42 @@ class GameService:
         if job is not None and self.queue is not None:
             self.queue.submit(job)
 
+    # --- the narrator's memory ----------------------------------------------
+
+    # A 1B model infers no continuity. Each turn was narrated from a fact block
+    # alone, so the prose read as disconnected vignettes. These two reads are
+    # what turn it into a story: what was last said, and what has changed since.
+    # Both come out of the room's own `events` table -- narration events are
+    # already durable there, so there is no new schema and no second store that
+    # could disagree with the log.
+
+    HISTORY_PASSAGES = 2
+
+    def _recent_narration(self, room_id: str) -> list:
+        """The last few turn narrations for this room, oldest first."""
+        room = self._room(room_id)
+        # More rows than passages, because interludes and premises share the
+        # kind and are filtered out here rather than in SQL.
+        rows = room.recent_events("narration", self.HISTORY_PASSAGES * 3)
+        texts = []
+        for row in rows:
+            payload = row.get("payload") or {}
+            if payload.get("job_kind", "turn") != "turn":
+                continue
+            text = (payload.get("text") or "").strip()
+            if text:
+                texts.append(text)
+            if len(texts) >= self.HISTORY_PASSAGES:
+                break
+        return list(reversed(texts))
+
+    def _previous_actor(self, room_id: str, event_seq: int) -> "str | None":
+        """Who acted on the turn before this one, if anyone did."""
+        for row in self._room(room_id).recent_events("action", 4):
+            if row["seq"] < event_seq:
+                return row["actor"]
+        return None
+
     def _enqueue_narration(self, room_id, player_id, event_seq, state, ability,
                            result) -> None:
         if self.queue is None:
@@ -482,6 +518,9 @@ class GameService:
         hazard = next((h for h in state["hazards"]
                        if h["id"] == state.get("active_hazard_id")), None)
         char = state["characters"][player_id]
+        remaining = None
+        if hazard and hazard.get("max_severity"):
+            remaining = max(0.0, hazard["severity"] / hazard["max_severity"])
         self.queue.submit({
             "kind": "turn", "priority": 0, "room_id": room_id,
             "event_seq": event_seq,
@@ -492,6 +531,9 @@ class GameService:
             "hazard": hazard, "ability_name": ability.name,
             "outcome": result.outcome, "natural": result.natural,
             "total": result.total, "dc": result.dc, "changes": result.changes,
+            "history": self._recent_narration(room_id),
+            "severity_remaining": remaining,
+            "same_engineer": self._previous_actor(room_id, event_seq) == player_id,
         })
 
     # --- test seams ---------------------------------------------------------
