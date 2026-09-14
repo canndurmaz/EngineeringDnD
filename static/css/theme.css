@@ -131,10 +131,50 @@ input, select {
 @keyframes pulse-red   { from { background: rgba(229,98,77,.22);  } to { background: transparent; } }
 .flash-crit   { animation: pulse-green 1.1s ease-out; }
 .flash-fumble { animation: pulse-red   1.1s ease-out; }
+/* The d20 settling. 600ms of tumble on the natural roll while the rest of the
+   line holds back, then everything lands at once. Presentation only: the turn
+   was resolved on the server before this class was ever added. */
+@keyframes d20-tumble {
+  0%   { transform: rotate(-20deg) scale(1.35); filter: blur(2px);   opacity: .45; }
+  25%  { transform: rotate( 16deg) scale(1.25); filter: blur(2px);   opacity: .7;  }
+  50%  { transform: rotate(-12deg) scale(1.3);  filter: blur(1.5px); opacity: .55; }
+  75%  { transform: rotate(  7deg) scale(1.15); filter: blur(1px);   opacity: .85; }
+  100% { transform: none;                       filter: none;        opacity: 1;   }
+}
+.roll .rest { transition: opacity .18s ease-out; }
+.roll.rolling .nat  { display: inline-block; animation: d20-tumble .6s ease-out; }
+.roll.rolling .rest { opacity: 0; }
+
 @media (prefers-reduced-motion: reduce) {
   .flash-crit, .flash-fumble { animation: none; }
   .bar-fill, .debt-meter { transition: none; }
+  /* No tumble, and the numbers are simply there. */
+  .roll.rolling .nat  { animation: none; filter: none; transform: none; opacity: 1; }
+  .roll.rolling .rest { opacity: 1; }
+  .roll .rest { transition: none; }
 }
+
+/* --- bots ---------------------------------------------------------------- */
+.chip-bot {
+  display: inline-block; margin-left: 6px; padding: 0 5px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .1em;
+  line-height: 15px; vertical-align: 1px;
+  color: var(--ground); background: var(--cyan); border-radius: 3px;
+}
+.pick-wrap { display: flex; flex-direction: column; }
+.pick-wrap .pick { flex: 1 1 auto; }
+.bot-add {
+  margin-top: 6px; padding: 5px 8px; font-size: 11px;
+  font-family: var(--mono); letter-spacing: .04em;
+  color: var(--ink-dim); background: var(--panel-2);
+  border: 1px dashed var(--line);
+}
+.bot-add:not(:disabled):hover { color: var(--cyan); border-color: var(--cyan); }
+.member .bot-drop {
+  margin-left: auto; padding: 0 6px; font-size: 11px;
+  color: var(--ink-dim); background: none; border: 1px solid var(--line);
+}
+.member .bot-drop:hover { color: var(--red); border-color: var(--red); }
 
 /* --- abilities ----------------------------------------------------------- */
 .abilities { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }

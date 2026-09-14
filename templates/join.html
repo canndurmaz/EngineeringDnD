@@ -3,7 +3,7 @@
 {% block content %}
 <div class="table-grid">
   <section class="panel">
-    <h2>Party</h2>
+    <h2>Party: <span id="party-count" class="num">0 seated</span></h2>
     <div id="roster"></div>
     <p id="genesis" class="roll">The DM is drafting your programme…</p>
     <img src="{{ url_for('room_qr', room_id=room_id) }}" alt="QR code to join this room"

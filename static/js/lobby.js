@@ -14,6 +14,11 @@ const api = async (url, options) => {
   return body;
 };
 
+/* "4 seated", and the split once bots are at the table. The lobby, the
+   character select and the table all say it the same way. */
+const seatedLabel = (seated, bots) =>
+  `${seated} seated` + (bots ? ` (${bots} bot${bots === 1 ? "" : "s"})` : "");
+
 const show = (id, message) => {
   const node = document.getElementById(id);
   if (node) node.textContent = message || "";
@@ -50,7 +55,8 @@ if (createForm) {
       <a class="pick" href="/room/${encodeURIComponent(room.room_id)}/join">
         <span class="name">${esc(room.name)}</span>
         <span class="role">${esc(room.archetype.replace(/_/g, " "))} ·
-          phase ${room.phase_index + 1} of 5 · ${room.player_count} seated</span>
+          phase ${room.phase_index + 1} of 5 ·
+          ${esc(seatedLabel(room.player_count, room.bot_count))}</span>
         <span class="stats">${esc(room.room_id)}</span>
       </a>`).join("");
   });
@@ -78,6 +84,9 @@ const seatForm = document.getElementById("seat");
 if (seatForm) {
   const roomId = window.ROOM_ID;
   let taken = new Set();
+  let classList = [];            // /api/classes, kept so the cards can redraw
+  let seated = 0;
+  let seatsLeft = 1;
   let options = {};
   let look = {};
 
@@ -99,16 +108,24 @@ if (seatForm) {
   const refresh = async () => {
     const state = await api(`/api/rooms/${roomId}/state`);
     taken = new Set(Object.values(state.characters).map((c) => c.class_id));
-    gateStart(Object.keys(state.characters).length);
+    const size = state.party_size || {};
+    seated = size.seated ?? Object.keys(state.characters).length;
+    seatsLeft = (size.max ?? seated + 1) - seated;
+    gateStart(seated);
+    show("party-count", seatedLabel(seated, size.bots || 0));
     document.getElementById("roster").innerHTML =
       Object.values(state.characters).map((c) => `
         <div class="member"><div class="member-row">
           ${avatarTag(c.appearance)}
           <div class="lines"><div class="who">
-            <span>${esc(c.name)}</span>
+            <span>${esc(c.name)}${c.is_bot ? '<span class="chip-bot">BOT</span>' : ""}</span>
             <span class="stats">${esc(c.class_id.replace(/_/g, " "))}</span>
           </div></div>
+          ${c.is_bot ? `<button type="button" class="bot-drop"
+            data-drop="${esc(encodeURIComponent(c.player_id))}"
+            aria-label="Remove ${esc(c.name)}">&times;</button>` : ""}
         </div></div>`).join("") || "<p class='roll'>Nobody seated yet.</p>";
+    drawClasses();
     if (state.room.premise) show("genesis", state.room.premise);
     if (revealing) return state;          // let the player read their dice first
     if (state.you) location.href = `/room/${roomId}`;
@@ -116,31 +133,70 @@ if (seatForm) {
     return state;
   };
 
-  const drawClasses = ({ classes }) => {
-    document.getElementById("classes").innerHTML = classes.map((cls) => `
-      <button type="button" class="pick" data-class="${esc(cls.id)}"
-              ${taken.has(cls.id) ? "disabled" : ""}>
-        <span class="name">${esc(cls.name)}</span>
-        <span class="stats">${esc(cls.primary)} / ${esc(cls.secondary)}</span>
-        <span class="role">${esc(cls.role)}</span>
-        <span class="role" style="margin-top:6px;display:block">${esc(cls.blurb)}</span>
-      </button>`).join("");
-
-    document.getElementById("classes").addEventListener("click", async (event) => {
-      const button = event.target.closest("[data-class]");
-      if (!button || button.disabled) return;
-      const name = document.getElementById("display-name").value.trim();
-      if (!name) { show("join-error", "Enter your name first."); return; }
-      try {
-        const joined = await api(`/api/rooms/${roomId}/join`, {
-          method: "POST",
-          body: JSON.stringify({ display_name: name, class_id: button.dataset.class,
-                                 appearance: look }),
-        });
-        revealTheRoll(joined.roll, joined.character);
-      } catch (error) { show("join-error", error.message); }
-    });
+  /* Redrawn on every poll, so a class someone else just took stops being
+     clickable and its "Add bot" control goes with it. The bot button cannot
+     live inside the class card: a <button> inside a <button> is invalid HTML
+     and the inner one never receives a click. */
+  const drawClasses = () => {
+    const target = document.getElementById("classes");
+    if (!classList.length || !target) return;
+    target.innerHTML = classList.map((cls) => `
+      <div class="pick-wrap">
+        <button type="button" class="pick" data-class="${esc(cls.id)}"
+                ${taken.has(cls.id) ? "disabled" : ""}>
+          <span class="name">${esc(cls.name)}</span>
+          <span class="stats">${esc(cls.primary)} / ${esc(cls.secondary)}</span>
+          <span class="role">${esc(cls.role)}</span>
+          <span class="role" style="margin-top:6px;display:block">${esc(cls.blurb)}</span>
+        </button>
+        ${taken.has(cls.id) ? "" : `<button type="button" class="bot-add"
+          data-bot="${esc(encodeURIComponent(cls.id))}" ${seatsLeft > 0 ? "" : "disabled"}
+          >Add bot</button>`}
+      </div>`).join("");
   };
+
+  const loadClasses = ({ classes }) => { classList = classes; drawClasses(); };
+
+  document.getElementById("classes").addEventListener("click", async (event) => {
+    const bot = event.target.closest("[data-bot]");
+    if (bot) {
+      if (bot.disabled) return;
+      bot.disabled = true;
+      show("join-error", "");
+      try {
+        await api(`/api/rooms/${roomId}/bots`, {
+          method: "POST",
+          body: JSON.stringify({ class_id: decodeURIComponent(bot.dataset.bot) }),
+        });
+      } catch (error) { show("join-error", error.message); }
+      await refresh();
+      return;
+    }
+    const button = event.target.closest("[data-class]");
+    if (!button || button.disabled) return;
+    const name = document.getElementById("display-name").value.trim();
+    if (!name) { show("join-error", "Enter your name first."); return; }
+    try {
+      const joined = await api(`/api/rooms/${roomId}/join`, {
+        method: "POST",
+        body: JSON.stringify({ display_name: name, class_id: button.dataset.class,
+                               appearance: look }),
+      });
+      revealTheRoll(joined.roll, joined.character);
+    } catch (error) { show("join-error", error.message); }
+  });
+
+  document.getElementById("roster").addEventListener("click", async (event) => {
+    const drop = event.target.closest("[data-drop]");
+    if (!drop) return;
+    drop.disabled = true;
+    show("join-error", "");
+    try {
+      await api(`/api/rooms/${roomId}/bots/${drop.dataset.drop}`,
+                { method: "DELETE" });
+    } catch (error) { show("join-error", error.message); }
+    await refresh();
+  });
 
   /* --- the one-time 4d6 reveal --------------------------------------------- */
   /* No rerolling: this shows what was rolled, it does not offer a second go.
@@ -252,6 +308,6 @@ if (seatForm) {
     } catch (error) { show("join-error", error.message); }
   });
 
-  refresh().then(() => api("/api/classes")).then(drawClasses);
+  refresh().then(() => api("/api/classes")).then(loadClasses);
   setInterval(refresh, 3000);
 }

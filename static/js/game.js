@@ -10,6 +10,12 @@ let CLASS_NAMES = {};          // class_id -> the display name /api/classes give
 let lastState = null;          // the most recent snapshot, for naming actors
 let levelStat = null;          // what this player has chosen, if anything
 
+/* Anything already committed when the stream opens is history, not news --
+   see isLive(). */
+let replayUntil = 0;
+const ROLL_MS = 600;                   // must match the d20 tumble in theme.css
+const isLive = (event) => event.seq > replayUntil;
+
 const el = (id) => document.getElementById(id);
 const esc = (text) => String(text ?? "").replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;",
@@ -37,7 +43,17 @@ const bar = (value, max, kind) => `
 
 /* --- rendering ------------------------------------------------------------ */
 
+/* "4 seated", and the split once bots are at the table. */
+function seatedLabel(size) {
+  if (!size) return "";
+  const bots = size.bots || 0;
+  return `${size.seated} seated` +
+    (bots ? ` (${bots} bot${bots === 1 ? "" : "s"})` : "");
+}
+
 function renderParty(state) {
+  const count = el("party-count");
+  if (count) count.textContent = seatedLabel(state.party_size);
   el("party").innerHTML = Object.values(state.characters).map((c) => {
     const active = state.turn.active_player_id === c.player_id;
     const down = c.stamina <= 0;
@@ -47,7 +63,7 @@ function renderParty(state) {
              src="${esc(avatarUrl(c.appearance))}">
         <div class="lines">
           <div class="who">
-            <span>${esc(c.name)}${down ? " · burned out" : ""}</span>
+            <span>${esc(c.name)}${c.is_bot ? '<span class="chip-bot">BOT</span>' : ""}${down ? " · burned out" : ""}</span>
             <span class="num">L${c.level}</span>
           </div>
           <div class="role">${esc(c.class_id.replace(/_/g, " "))}</div>
@@ -183,6 +199,10 @@ const LABELS = {
   player_joined: (e) => e.name
     ? `${esc(e.name)} joins as ${esc(className(e.class_id))}.`
     : "A new engineer joins.",
+  bot_added: (e) => e.name
+    ? `${esc(e.name)} boots up as ${esc(className(e.class_id))}.`
+    : "A bot takes a seat.",
+  bot_removed: (e) => e.name ? `${esc(e.name)} powers down.` : "A bot stands up.",
   passed: (e) => {
     const who = actorName(e);
     return who ? `${esc(who)} passes.` : "Turn passed.";
@@ -240,15 +260,27 @@ function renderEvent(event) {
     const sign = hit ? "≥" : "<";
     node.insertAdjacentHTML("afterbegin", `
       <div class="roll ${event.outcome}">
-        <span class="nat">${event.natural}</span>
+        <span class="nat">${event.natural}</span><span class="rest">
         ${event.stat_mod >= 0 ? "+" : ""}${event.stat_mod}
         ${event.roll_bonus ? `+${event.roll_bonus}` : ""}
         = ${event.total} ${sign} DC ${event.dc ?? "?"}
         · ${esc(event.ability_name)} · ${esc(event.outcome)}
-        ${event.rerolled ? " · rerolled" : ""}
+        ${event.rerolled ? " · rerolled" : ""}</span>
       </div>`);
-    if (event.outcome === "crit") node.classList.add("flash-crit");
-    if (event.outcome === "fumble") node.classList.add("flash-fumble");
+    const settle = () => {
+      if (event.outcome === "crit") node.classList.add("flash-crit");
+      if (event.outcome === "fumble") node.classList.add("flash-fumble");
+    };
+    /* Presentation only: the state is already committed, so the tumble never
+       gates a turn. History replayed on reconnect settles instantly -- forty
+       past rolls tumbling at once is noise, not drama. */
+    if (isLive(event)) {
+      const roll = node.querySelector(".roll");
+      roll.classList.add("rolling");
+      setTimeout(() => { roll.classList.remove("rolling"); settle(); }, ROLL_MS);
+    } else {
+      settle();
+    }
     return;
   }
 
@@ -272,12 +304,21 @@ async function refresh() {
   return state;
 }
 
-function connect() {
+async function connect() {
+  /* Whatever the room has already written is replay, however it reaches us:
+     the first connection replays from zero, a reconnection replays everything
+     that landed while the socket was down. Only what arrives after this mark
+     is live. */
+  try {
+    const state = await api(`/api/rooms/${ROOM}/state`);
+    replayUntil = Math.max(replayUntil, state.latest_seq || 0);
+  } catch (error) { /* the stream still works; nothing will animate */ }
   const source = new EventSource(`/api/rooms/${ROOM}/stream?since=${lastSeq}`);
   source.onmessage = () => {};
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
-   "campaign_updated", "passed", "room_created", "interlude"].forEach((kind) => {
+   "campaign_updated", "passed", "room_created", "interlude",
+   "bot_added", "bot_removed"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);
       renderEvent(event);
