@@ -212,11 +212,17 @@ class GameService:
             dice = self._dice(state)
             result = resolve_action(state, player_id, ability, dice, target_id)
 
+            # The action event is broadcast to every subscriber, so it must not
+            # carry a DC the party has not yet revealed.
+            hazard = next((h for h in state["hazards"]
+                           if h["id"] == state.get("active_hazard_id")), None)
+            dc_public = result.dc if hazard and "dc" in hazard.get("revealed", []) else None
+
             action_seq = room.append_event("action", player_id, {
                 "ability_id": ability.id, "ability_name": ability.name,
                 "natural": result.natural, "stat": result.stat_used,
                 "stat_mod": result.stat_mod, "roll_bonus": result.roll_bonus,
-                "total": result.total, "dc": result.dc, "outcome": result.outcome,
+                "total": result.total, "dc": dc_public, "outcome": result.outcome,
                 "rerolled": result.rerolled, "changes": result.changes,
             })
             room.create_narration(action_seq)

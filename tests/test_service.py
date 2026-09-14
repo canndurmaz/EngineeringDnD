@@ -235,3 +235,27 @@ def test_a_room_survives_a_fresh_service_instance(tmp_path):
 
     second = GameService(str(tmp_path), catalog, templates, archetypes)
     assert second.snapshot(room_id)["characters"][a["player_id"]]["focus"] == focus
+
+
+def _action_event(svc, room_id, result):
+    events = svc._room(room_id).events_since(result["event_seq"] - 1)
+    return next(e for e in events if e["kind"] == "action")
+
+
+def test_action_event_hides_an_unrevealed_hazard_dc(svc):
+    room_id, a, _ = seat_two(svc)
+    result = svc.act(room_id, a["player_id"], "unit_test_barrage")
+    assert _action_event(svc, room_id, result)["payload"]["dc"] is None
+
+
+def test_action_event_carries_the_dc_once_it_is_revealed(svc):
+    room_id, a, _ = seat_two(svc)
+    state = svc.snapshot(room_id)
+    hazard = next(h for h in state["hazards"]
+                  if h["id"] == state["active_hazard_id"])
+    hazard.setdefault("revealed", []).append("dc")
+    svc._room(room_id).save_state(state)
+
+    result = svc.act(room_id, a["player_id"], "unit_test_barrage")
+    payload = _action_event(svc, room_id, result)["payload"]
+    assert payload["dc"] == result["dc"] and isinstance(payload["dc"], int)

@@ -127,13 +127,14 @@ function renderEvent(event) {
 
   if (event.kind === "action") {
     const node = entryFor(event.seq);
-    const sign = event.total >= event.dc ? "≥" : "<";
+    const hit = event.outcome === "success" || event.outcome === "crit";
+    const sign = hit ? "≥" : "<";
     node.insertAdjacentHTML("afterbegin", `
       <div class="roll ${event.outcome}">
         <span class="nat">${event.natural}</span>
         ${event.stat_mod >= 0 ? "+" : ""}${event.stat_mod}
         ${event.roll_bonus ? `+${event.roll_bonus}` : ""}
-        = ${event.total} ${sign} DC ${event.dc}
+        = ${event.total} ${sign} DC ${event.dc ?? "?"}
         · ${esc(event.ability_name)} · ${esc(event.outcome)}
         ${event.rerolled ? " · rerolled" : ""}
       </div>`);
