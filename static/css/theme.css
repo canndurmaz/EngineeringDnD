@@ -197,3 +197,62 @@ button.small { padding: 6px 12px; font-size: 12px; }
 }
 .level-choice .stat[aria-pressed="true"] { color: var(--ground); background: var(--cyan); border-color: var(--cyan); }
 .level-choice .stat:disabled { cursor: progress; opacity: 0.6; }
+
+/* --- stats explainer on the character-select screen ----------------------- */
+.stat-guide {
+  margin-top: 14px; padding: 12px 14px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px;
+}
+.stat-guide summary {
+  cursor: pointer; font-family: var(--mono); font-size: 11px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--ink-dim);
+}
+.stat-guide summary:hover { color: var(--cyan); }
+.stat-list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 4px 18px; margin: 12px 0 0;
+}
+.stat-list div { display: flex; gap: 8px; align-items: baseline; }
+.stat-list dt {
+  font-family: var(--mono); font-size: 12px; color: var(--cyan);
+  min-width: 82px; letter-spacing: .06em;
+}
+.stat-list dd { margin: 0; font-size: 13px; color: var(--ink-dim); }
+.stat-notes {
+  margin: 12px 0 0; padding-left: 18px; font-size: 13px;
+  color: var(--ink-dim); line-height: 1.6;
+}
+.stat-notes b { color: var(--amber); font-weight: 600; }
+
+/* --- the one-time 4d6 reveal after joining -------------------------------- */
+.roll-reveal {
+  margin-top: 16px; padding: 16px;
+  background: var(--panel); border: 1px solid var(--cyan); border-radius: 6px;
+}
+.roll-reveal h3 {
+  margin: 0 0 4px; font-size: 11px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--cyan); font-weight: 600;
+}
+.roll-reveal .lede { margin: 0 0 14px; font-size: 13px; color: var(--ink-dim); }
+.roll-rows { display: grid; gap: 6px; }
+.roll-row {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  padding: 7px 10px; border: 1px solid var(--line); border-radius: 4px;
+}
+.roll-row.seated { border-color: var(--amber); }
+.roll-row .dice { display: flex; gap: 5px; }
+.roll-row .die {
+  font-family: var(--mono); font-size: 13px; min-width: 22px; text-align: center;
+  border: 1px solid var(--line); border-radius: 3px; padding: 2px 0;
+}
+.roll-row .die.dropped {
+  color: var(--ink-dim); opacity: .45; text-decoration: line-through;
+}
+.roll-row .total {
+  font-family: var(--mono); font-size: 13px; color: var(--cyan); min-width: 58px;
+}
+.roll-row .lands { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; }
+.roll-row .seat {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--amber); margin-left: auto;
+}

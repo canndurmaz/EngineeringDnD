@@ -81,9 +81,25 @@ if (seatForm) {
   let options = {};
   let look = {};
 
+  /* True from the moment a join succeeds until the player clicks through the
+     roll reveal. It holds the poll's redirect back so the reveal is readable. */
+  let revealing = false;
+
+  const startButton = document.getElementById("start");
+
+  /* The server already refuses to start an empty room (and refuses anyone who
+     is not seated); this only stops the button from lying about it. */
+  const gateStart = (seated) => {
+    startButton.disabled = seated === 0;
+    startButton.textContent = seated === 0
+      ? "Waiting for engineers\u2026"
+      : `Start the programme (${seated} seated)`;
+  };
+
   const refresh = async () => {
     const state = await api(`/api/rooms/${roomId}/state`);
     taken = new Set(Object.values(state.characters).map((c) => c.class_id));
+    gateStart(Object.keys(state.characters).length);
     document.getElementById("roster").innerHTML =
       Object.values(state.characters).map((c) => `
         <div class="member"><div class="member-row">
@@ -94,6 +110,7 @@ if (seatForm) {
           </div></div>
         </div></div>`).join("") || "<p class='roll'>Nobody seated yet.</p>";
     if (state.room.premise) show("genesis", state.room.premise);
+    if (revealing) return state;          // let the player read their dice first
     if (state.you) location.href = `/room/${roomId}`;
     if (state.room.status === "active") location.href = `/room/${roomId}`;
     return state;
@@ -115,14 +132,56 @@ if (seatForm) {
       const name = document.getElementById("display-name").value.trim();
       if (!name) { show("join-error", "Enter your name first."); return; }
       try {
-        await api(`/api/rooms/${roomId}/join`, {
+        const joined = await api(`/api/rooms/${roomId}/join`, {
           method: "POST",
           body: JSON.stringify({ display_name: name, class_id: button.dataset.class,
                                  appearance: look }),
         });
-        location.href = `/room/${roomId}`;
+        revealTheRoll(joined.roll, joined.character);
       } catch (error) { show("join-error", error.message); }
     });
+  };
+
+  /* --- the one-time 4d6 reveal --------------------------------------------- */
+  /* No rerolling: this shows what was rolled, it does not offer a second go.
+     Everything below is server-generated, but stat names come from the class
+     data, so they go through esc() like anything else. */
+  const dieTag = (value, isDropped) =>
+    `<span class="die${isDropped ? " dropped" : ""}">${esc(value)}</span>`;
+
+  const rollRow = (roll, detail) => {
+    const seat = roll.stat === detail.primary ? "primary"
+               : roll.stat === detail.secondary ? "secondary" : "";
+    let dropped = false;                  // strike exactly one copy of the low die
+    const dice = (roll.dice || []).map((value) => {
+      const strike = !dropped && value === roll.dropped;
+      if (strike) dropped = true;
+      return dieTag(value, strike);
+    }).join("");
+    return `
+      <div class="roll-row${seat ? " seated" : ""}">
+        <span class="dice">${dice}</span>
+        <span class="total">= ${esc(roll.total)}</span>
+        <span class="lands">${esc(roll.stat)}</span>
+        ${seat ? `<span class="seat">${esc(seat)}</span>` : ""}
+      </div>`;
+  };
+
+  const revealTheRoll = (detail, character) => {
+    revealing = true;
+    seatForm.hidden = true;
+    const target = document.getElementById("roll-reveal");
+    if (!detail || !detail.rolls) { location.href = `/room/${roomId}`; return; }
+    target.innerHTML = `
+      <div class="roll-reveal">
+        <h3>Your roll &mdash; ${esc(character ? character.name : "")}</h3>
+        <p class="lede">Four d6, lowest dropped, six times. The two best totals
+          seat in your class&rsquo;s primary and secondary stats. This roll stands.</p>
+        <div class="roll-rows">${detail.rolls.map((r) => rollRow(r, detail)).join("")}</div>
+        <button type="button" id="take-seat" style="margin-top:14px">Take your seat &rarr;</button>
+      </div>`;
+    target.querySelector("#take-seat")
+      .addEventListener("click", () => { location.href = `/room/${roomId}`; });
   };
 
   /* --- appearance pickers -------------------------------------------------- */
@@ -180,7 +239,7 @@ if (seatForm) {
 
   api("/api/appearance-options").then(drawPickers);
 
-  document.getElementById("start").addEventListener("click", async () => {
+  startButton.addEventListener("click", async () => {
     try {
       await api(`/api/rooms/${roomId}/start`, { method: "POST" });
       location.href = `/room/${roomId}`;

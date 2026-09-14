@@ -24,9 +24,33 @@
       </div>
 
       <p id="join-error" class="debt" role="alert"></p>
+
+      <details class="stat-guide" open>
+        <summary>What the six stats mean</summary>
+        <dl class="stat-list">
+          <div><dt>RIGOR</dt><dd>Analysis, math, verification</dd></div>
+          <div><dt>INTUITION</dt><dd>Debugging instinct, pattern recognition</dd></div>
+          <div><dt>CRAFT</dt><dd>Fabrication, soldering, rework, bench work</dd></div>
+          <div><dt>SYSTEMS</dt><dd>Architecture, interfaces, whole-system reasoning</dd></div>
+          <div><dt>COMMS</dt><dd>Stakeholders, documentation, persuasion</dd></div>
+          <div><dt>GRIT</dt><dd>Endurance, stress tolerance</dd></div>
+        </dl>
+        <ul class="stat-notes">
+          <li>Every action rolls <span class="num">d20 + stat modifier</span> against a difficulty.</li>
+          <li>A modifier is <span class="num">(score &minus; 10) &divide; 2</span>, rounded down.</li>
+          <li><b>Stamina</b> = <span class="num">8 + GRIT mod + 2 &times; level</span> &mdash;
+              the stress you absorb before burning out.</li>
+          <li><b>Focus</b> = <span class="num">4 + the better of RIGOR and SYSTEMS mods</span> &mdash;
+              your budget for abilities.</li>
+          <li>Your stats are rolled <span class="num">4d6</span>, dropping the lowest die, six times.
+              Your class&rsquo;s primary and secondary stats always receive your two best rolls.</li>
+        </ul>
+      </details>
+
       <div class="card-grid" id="classes" style="margin-top:14px"></div>
     </form>
-    <button id="start" class="ghost" style="margin-top:18px">Start the programme</button>
+    <div id="roll-reveal"></div>
+    <button id="start" class="ghost" style="margin-top:18px" disabled>Waiting for engineers&hellip;</button>
   </section>
 </div>
 {% endblock %}
