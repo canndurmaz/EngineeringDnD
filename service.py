@@ -5,7 +5,7 @@ import secrets
 import threading
 
 import appearance as appearance_lib
-from engine.character import new_character
+from engine.character import new_character_detailed
 from engine.classes import STATS, Catalog
 from engine.dice import Dice
 from engine.effects import expire_conditions
@@ -111,9 +111,9 @@ class GameService:
                 raise ServiceError(f"{class_id} is already taken in this room")
             player_id = "p" + secrets.token_hex(4)
             token = secrets.token_urlsafe(24)
-            char = new_character(player_id, display_name,
-                                 self.catalog.classes[class_id], self.catalog,
-                                 self._dice(state))
+            char, roll = new_character_detailed(player_id, display_name,
+                                                self.catalog.classes[class_id],
+                                                self.catalog, self._dice(state))
             # Appearance is presentation, not rules, so the pure engine never
             # sees it -- it is bolted on here and validated before it lands.
             char["appearance"] = (appearance_lib.normalise(appearance)
@@ -128,7 +128,12 @@ class GameService:
                               {"name": display_name, "class_id": class_id})
             self._reindex(room_id, state)
             self._publish(room_id, room.events_since(start_seq))
-            return {"player_id": player_id, "token": token, "character": char}
+            # `roll` rides along on this one response and is deliberately not
+            # written to the room state: it is a one-time reveal on the join
+            # screen, and persisting it would mean another schema migration for
+            # a blob nothing else ever reads.
+            return {"player_id": player_id, "token": token, "character": char,
+                    "roll": roll}
 
     def player_by_token(self, room_id: str, token: str) -> "dict | None":
         return self._room(room_id).player_by_token(token)

@@ -1,6 +1,6 @@
 import pytest
 from engine.character import (CharacterError, level_up, max_focus, max_stamina,
-                              new_character, roll_stats)
+                              new_character, roll_stats, roll_stats_detailed)
 from engine.classes import STATS, load_catalog
 from engine.dice import Dice
 
@@ -111,3 +111,47 @@ def test_level_up_rejects_an_unknown_stat(cat):
     char = new_character("p1", "Ada", cat.classes["computer_scientist"], cat, Dice(9))
     with pytest.raises(CharacterError, match="MAGIC"):
         level_up(char, cat, "MAGIC", 1)
+
+
+# --- the 4d6 breakdown shown on the character-select screen ------------------
+def test_roll_stats_detailed_reports_six_honest_rolls(cat):
+    cls = cat.classes["mechanical_engineer"]
+    for seed in range(20):
+        _, detail = roll_stats_detailed(cls, Dice(seed))
+        assert len(detail["rolls"]) == 6
+        for roll in detail["rolls"]:
+            assert len(roll["dice"]) == 4
+            assert all(1 <= d <= 6 for d in roll["dice"])
+            assert roll["dropped"] == min(roll["dice"])
+            kept = list(roll["dice"])
+            kept.remove(roll["dropped"])
+            assert roll["total"] == sum(kept)
+
+
+def test_detailed_totals_clamped_match_the_assigned_stats(cat):
+    cls = cat.classes["computer_scientist"]
+    for seed in range(20):
+        stats, detail = roll_stats_detailed(cls, Dice(seed))
+        assert {r["stat"] for r in detail["rolls"]} == set(STATS)
+        for roll in detail["rolls"]:
+            assert stats[roll["stat"]] == max(8, min(16, roll["total"]))
+
+
+def test_primary_and_secondary_take_the_two_best_rolls(cat):
+    cls = cat.classes["product_manager"]
+    for seed in range(20):
+        _, detail = roll_stats_detailed(cls, Dice(seed))
+        assert detail["primary"] == cls.primary
+        assert detail["secondary"] == cls.secondary
+        by_stat = {r["stat"]: r["total"] for r in detail["rolls"]}
+        totals = sorted(by_stat.values(), reverse=True)
+        assert by_stat[cls.primary] == totals[0]
+        assert by_stat[cls.secondary] == totals[1]
+
+
+def test_roll_stats_still_matches_the_detailed_roll(cat):
+    """roll_stats is unchanged: same seed, same stats, same determinism."""
+    cls = cat.classes["system_engineer"]
+    for seed in range(20):
+        assert roll_stats(cls, Dice(seed)) == roll_stats(cls, Dice(seed))
+        assert roll_stats(cls, Dice(seed)) == roll_stats_detailed(cls, Dice(seed))[0]

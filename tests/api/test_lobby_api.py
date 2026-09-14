@@ -47,6 +47,23 @@ def test_join_seats_a_character(client):
     assert response.get_json()["character"]["class_id"] == "computer_scientist"
 
 
+def test_join_returns_the_roll_breakdown(client):
+    """The 4d6 reveal rides on the join response -- and is never persisted."""
+    room_id = make_room(client)
+    body = client.post(f"/api/rooms/{room_id}/join",
+                       json={"display_name": "Ada",
+                             "class_id": "computer_scientist"}).get_json()
+    roll = body["roll"]
+    assert len(roll["rolls"]) == 6
+    for entry in roll["rolls"]:
+        assert len(entry["dice"]) == 4
+        assert entry["dropped"] == min(entry["dice"])
+    assert roll["primary"] and roll["secondary"]
+    state = client.get(f"/api/rooms/{room_id}/state").get_json()
+    stored = next(iter(state["characters"].values()))
+    assert "roll" not in stored
+
+
 def test_the_session_survives_across_requests(client):
     room_id = make_room(client)
     client.post(f"/api/rooms/{room_id}/join",
