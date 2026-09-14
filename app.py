@@ -26,6 +26,23 @@ def session_key(room_id: str) -> str:
     return f"room:{room_id}"
 
 
+def _body() -> dict:
+    """The request's JSON object, or {} for anything that is not one.
+
+    `get_json(silent=True) or {}` is not enough: a valid JSON body can be a
+    list, a number or a string, and every one of those reaches `.get()` and
+    raises AttributeError -- a 500 for what is only an illegal request.
+    """
+    body = request.get_json(silent=True)
+    return body if isinstance(body, dict) else {}
+
+
+def _text(value) -> str:
+    """A body field as a stripped string. JSON fields are attacker-controlled,
+    so a number or a list must not reach `.strip()`."""
+    return str(value or "").strip()
+
+
 def _secret_key() -> str:
     path = Path("instance") / "secret.key"
     if not path.exists():
@@ -167,25 +184,28 @@ def create_app(config: "dict | None" = None) -> Flask:
 
     @app.post("/api/rooms")
     def api_create_room():
-        body = request.get_json(silent=True) or {}
-        name = (body.get("name") or "").strip()
+        body = _body()
+        name = _text(body.get("name"))
         if not name:
             raise ServiceError("a room needs a name")
         if len(name) > NAME_MAX:
             raise ServiceError(f"a room name is at most {NAME_MAX} characters")
-        room_id = app.service.create_room(name, body.get("archetype", ""))
+        room_id = app.service.create_room(name, _text(body.get("archetype")))
         return jsonify({"room_id": room_id}), 201
 
     @app.post("/api/rooms/<room_id>/join")
     def api_join(room_id):
-        body = request.get_json(silent=True) or {}
-        name = (body.get("display_name") or "").strip()
+        body = _body()
+        name = _text(body.get("display_name"))
         if not name:
             raise ServiceError("you need a display name")
         if len(name) > NAME_MAX:
             raise ServiceError(f"a display name is at most {NAME_MAX} characters")
-        joined = app.service.join_room(room_id, name, body.get("class_id", ""),
-                                       body.get("appearance"))
+        appearance = body.get("appearance")
+        joined = app.service.join_room(room_id, name,
+                                       _text(body.get("class_id")),
+                                       appearance if isinstance(appearance, dict)
+                                       else None)
         session[session_key(room_id)] = {"player_id": joined["player_id"],
                                          "token": joined["token"]}
         session.permanent = True
@@ -205,9 +225,9 @@ def create_app(config: "dict | None" = None) -> Flask:
         found = require_seat(room_id)
         if not found:
             return jsonify({"error": "you are not seated in this room"}), 403
-        body = request.get_json(silent=True) or {}
+        body = _body()
         app.service.set_level_choice(room_id, found["player_id"],
-                                     body.get("stat", ""))
+                                     _text(body.get("stat")))
         return jsonify({"ok": True})
 
     # --- state -------------------------------------------------------------
@@ -249,12 +269,13 @@ def create_app(config: "dict | None" = None) -> Flask:
         found = require_seat(room_id)
         if not found:
             return jsonify({"error": "you are not seated in this room"}), 403
-        body = request.get_json(silent=True) or {}
-        ability_id = body.get("ability_id")
+        body = _body()
+        ability_id = _text(body.get("ability_id"))
         if not ability_id:
             raise ServiceError("no ability chosen")
+        target_id = body.get("target_id")
         result = app.service.act(room_id, found["player_id"], ability_id,
-                                 body.get("target_id"))
+                                 _text(target_id) or None)
         events = result.pop("events", [])
         return jsonify({"result": result, "events": events})
 
