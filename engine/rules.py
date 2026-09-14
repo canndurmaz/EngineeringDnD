@@ -175,6 +175,11 @@ def hazard_attack(state, dice: Dice, forced_target: "str | None" = None) -> dict
 
     phase = state["room"]["phase_index"]
     attack = hazard["attack_type"]
+    # The party is about to watch this attack land (and the payload names it, which
+    # is diegetic -- you see what hit you). Record that as a reveal so the UI stops
+    # claiming "next: unknown" for something everyone just witnessed; otherwise the
+    # reveal state would lie about what the party knows.
+    hazard["revealed"] = sorted(set(hazard.get("revealed", [])) | {"next_attack"})
 
     if attack == "stress":
         living = [p for p, c in state["characters"].items() if c["stamina"] > 0]

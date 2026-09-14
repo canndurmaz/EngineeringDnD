@@ -241,6 +241,30 @@ def test_no_debt_condition_blocks_a_debt_attack(cat):
     assert s["party"]["tech_debt"] == 0
 
 
+def test_a_landed_attack_reveals_next_attack(cat):
+    """The payload names the attack type, so the reveal state must admit it."""
+    s = make_state()
+    assert "next_attack" not in s["hazards"][0].get("revealed", [])
+    result = hazard_attack(s, Dice(3))
+    assert result["attack"] == "stress"
+    assert "next_attack" in s["hazards"][0]["revealed"]
+
+
+def test_revealing_next_attack_keeps_other_reveals(cat):
+    s = make_state()
+    s["hazards"][0]["revealed"] = ["weakness"]
+    hazard_attack(s, Dice(3))
+    assert set(s["hazards"][0]["revealed"]) == {"weakness", "next_attack"}
+
+
+def test_a_stunned_hazard_reveals_nothing(cat):
+    """No attack happened, so the party learned nothing about the next one."""
+    s = make_state()
+    add_condition(s, "stunned", "hazard", 1, 1)
+    hazard_attack(s, Dice(3))
+    assert "next_attack" not in s["hazards"][0].get("revealed", [])
+
+
 def test_stunned_hazard_skips_its_attack(cat):
     s = make_state()
     add_condition(s, "stunned", "hazard", 1, 1)
