@@ -43,7 +43,8 @@ CREATE TABLE IF NOT EXISTS characters (
     max_focus    INTEGER NOT NULL,
     unlocked     TEXT NOT NULL,
     used         TEXT NOT NULL,
-    appearance   TEXT NOT NULL DEFAULT '{}'
+    appearance   TEXT NOT NULL DEFAULT '{}',
+    is_bot       INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS hazards (

@@ -163,11 +163,17 @@ def test_list_room_ids_ignores_directories_without_a_database(tmp_path, room):
 # --- appearance and the legacy-database migration --------------------------
 
 def _legacy_schema() -> str:
-    """schema.sql as it read before characters gained an appearance column."""
+    """schema.sql as it read before characters gained its migrated columns.
+
+    Every column added after the first release (appearance, then is_bot) is
+    stripped back out here, so these tests keep describing a database written
+    by an earlier build rather than the one the current file happens to create.
+    """
     schema = (pathlib.Path("storage") / "schema.sql").read_text()
     return schema.replace(
         "    used         TEXT NOT NULL,\n"
-        "    appearance   TEXT NOT NULL DEFAULT '{}'\n",
+        "    appearance   TEXT NOT NULL DEFAULT '{}',\n"
+        "    is_bot       INTEGER NOT NULL DEFAULT 0\n",
         "    used         TEXT NOT NULL\n")
 
 
@@ -185,8 +191,9 @@ def _make_legacy_room(tmp_path, room_id="old123"):
     conn.execute("INSERT INTO party (id) VALUES (1)")
     conn.execute("INSERT INTO turn_state (id) VALUES (1)")
     conn.commit()
-    assert "appearance" not in {
-        row[1] for row in conn.execute("PRAGMA table_info(characters)")}
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(characters)")}
+    assert "appearance" not in columns
+    assert "is_bot" not in columns
     conn.close()
     return path
 
@@ -218,6 +225,34 @@ def test_a_legacy_database_still_loads_and_saves(tmp_path):
     db.close()
 
 
+def test_a_database_without_the_is_bot_column_gains_it(tmp_path):
+    """Bots arrived after several real rooms were already on disk."""
+    _make_legacy_room(tmp_path)
+    db = RoomDB.open(str(tmp_path), "old123")
+    columns = {row[1] for row in
+               db.connect().execute("PRAGMA table_info(characters)")}
+    assert "is_bot" in columns
+    db.close()
+
+
+def test_a_migrated_database_round_trips_a_bot(tmp_path):
+    """The column is useless if a bot cannot be written through it."""
+    _make_legacy_room(tmp_path)
+    db = RoomDB.open(str(tmp_path), "old123")
+    fresh = make_state()
+    fresh["room"].update({"id": "old123", "name": "Kestrel",
+                          "archetype": "aircraft", "rng_seed": 4242,
+                          "premise": "p"})
+    fresh["characters"]["p2"]["is_bot"] = True
+    seat(db, fresh)
+    db.save_state(fresh)
+    loaded = db.load_state()
+    assert loaded["characters"]["p2"]["is_bot"] is True
+    assert "is_bot" not in loaded["characters"]["p1"]
+    assert loaded == fresh
+    db.close()
+
+
 def test_the_migration_is_idempotent(tmp_path):
     _make_legacy_room(tmp_path)
     for _ in range(3):
@@ -228,6 +263,7 @@ def test_the_migration_is_idempotent(tmp_path):
     columns = [row[1] for row in
                db.connect().execute("PRAGMA table_info(characters)")]
     assert columns.count("appearance") == 1
+    assert columns.count("is_bot") == 1
     db.close()
 
 

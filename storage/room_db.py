@@ -100,6 +100,10 @@ class RoomDB:
             conn.execute("ALTER TABLE characters"
                          " ADD COLUMN appearance TEXT NOT NULL DEFAULT '{}'")
             conn.commit()
+        if "is_bot" not in columns:
+            conn.execute("ALTER TABLE characters"
+                         " ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -159,6 +163,10 @@ class RoomDB:
             appearance = json.loads(row["appearance"] or "{}")
             if appearance:
                 characters[row["player_id"]]["appearance"] = appearance
+            # Same rule as appearance: a human carries no is_bot key at all, so
+            # a state that went in without one comes back out the same shape.
+            if row["is_bot"]:
+                characters[row["player_id"]]["is_bot"] = True
 
         hazards = []
         for row in conn.execute(
@@ -213,12 +221,13 @@ class RoomDB:
                 conn.execute(
                     "INSERT INTO characters (player_id, name, class_id, stats, level,"
                     " stamina, max_stamina, focus, max_focus, unlocked, used,"
-                    " appearance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " appearance, is_bot) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (char["player_id"], char["name"], char["class_id"],
                      json.dumps(char["stats"]), char["level"], char["stamina"],
                      char["max_stamina"], char["focus"], char["max_focus"],
                      json.dumps(char["unlocked"]), json.dumps(char["used"]),
-                     json.dumps(char.get("appearance") or {})))
+                     json.dumps(char.get("appearance") or {}),
+                     int(bool(char.get("is_bot", False)))))
 
             conn.execute("DELETE FROM hazards")
             for hazard in state["hazards"]:
@@ -244,6 +253,11 @@ class RoomDB:
                 "INSERT INTO players (player_id, display_name, token, class_id,"
                 " joined_at, last_seen, seat) VALUES (?,?,?,?,?,?,?)",
                 (player_id, name, token, class_id, now, now, seat))
+
+    def remove_player(self, player_id: str) -> None:
+        conn = self.connect()
+        with conn:
+            conn.execute("DELETE FROM players WHERE player_id = ?", (player_id,))
 
     def player_by_token(self, token: str) -> "dict | None":
         row = self.connect().execute(
