@@ -115,11 +115,26 @@ function renderEvent(event) {
 
   if (event.kind === "premise") { el("premise").textContent = event.premise; return; }
 
+  if (event.kind === "narration_chunk") {
+    const node = entryFor(event.event_seq);
+    let prose = node.querySelector(".prose");
+    if (!prose) {
+      prose = document.createElement("p");
+      prose.className = "prose";
+      prose.dataset.streaming = "1";
+      node.append(prose);
+    }
+    if (prose.dataset.streaming === "1") prose.textContent += event.delta;
+    el("log").scrollTop = el("log").scrollHeight;
+    return;                       // no refresh(): chunks change no game state
+  }
+
   if (event.kind === "narration") {
     const node = entryFor(event.event_seq ?? event.seq);
     node.classList.remove("pending");
     let prose = node.querySelector(".prose");
     if (!prose) { prose = document.createElement("p"); prose.className = "prose"; node.append(prose); }
+    prose.dataset.streaming = "0";
     prose.textContent = event.text;
     el("log").scrollTop = el("log").scrollHeight;
     return;
@@ -174,12 +189,13 @@ async function refresh() {
 function connect() {
   const source = new EventSource(`/api/rooms/${ROOM}/stream?since=${lastSeq}`);
   source.onmessage = () => {};
-  ["action", "narration", "premise", "hazard_attack", "hazard_defeated",
+  ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
    "campaign_updated", "passed", "room_created"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
-      renderEvent(JSON.parse(message.data));
-      refresh();
+      const event = JSON.parse(message.data);
+      renderEvent(event);
+      if (event.kind !== "narration_chunk") refresh();
     });
   });
   source.onerror = () => {

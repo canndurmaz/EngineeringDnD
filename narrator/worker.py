@@ -85,6 +85,35 @@ class NarrationWorker:
             log.exception("narrator raised; using template")
         return self.fallback.narrate(job), self.fallback.name
 
+    def _supports_streaming(self) -> bool:
+        return callable(getattr(self.narrator, "stream", None))
+
+    def _generate_streaming(self, job: dict) -> tuple:
+        """Publish deltas as they arrive, then filter the assembled text."""
+        room_id, event_seq = job["room_id"], job.get("event_seq")
+        parts: list = []
+
+        def consume():
+            for delta in self.narrator.stream(job):
+                parts.append(delta)
+                self.broker.publish(room_id, {
+                    "seq": event_seq, "kind": "narration_chunk",
+                    "event_seq": event_seq, "delta": delta})
+            return "".join(parts)
+
+        try:
+            raw = self._pool.submit(consume).result(timeout=self.deadline)
+            text = clean(raw, _allowed_numbers(job))
+            if text:
+                return text, self.narrator.name
+            log.info("streamed narration filtered to nothing; using template")
+        except concurrent.futures.TimeoutError:
+            log.warning("streamed narration exceeded %.0fs; using template",
+                        self.deadline)
+        except Exception:
+            log.exception("stream raised; using template")
+        return self.fallback.narrate(job), self.fallback.name
+
     def _handle(self, job: dict) -> None:
         kind = job.get("kind", "turn")
         if kind == "genesis":
@@ -98,7 +127,10 @@ class NarrationWorker:
         room = self.service._room(room_id)
         if event_seq is not None:
             room.update_narration(event_seq, "streaming", "", "")
-        text, source = self._generate(job)
+        if self._supports_streaming():
+            text, source = self._generate_streaming(job)
+        else:
+            text, source = self._generate(job)
         if event_seq is not None:
             room.update_narration(event_seq, "done", text, source)
         payload = {"event_seq": event_seq, "text": text, "source": source,

@@ -55,3 +55,14 @@ class LlamaNarrator:
             else SAMPLING
         response = model.create_chat_completion(messages=build(job), **sampling)
         return response["choices"][0]["message"]["content"].strip()
+
+    def stream(self, job: dict):
+        """Yield text deltas. llama-cpp-python emits OpenAI-shaped chunk dicts."""
+        model = self.load()
+        sampling = GENESIS_SAMPLING if job.get("kind") in ("genesis", "hazards") \
+            else SAMPLING
+        for chunk in model.create_chat_completion(messages=build(job), stream=True,
+                                                  **sampling):
+            delta = chunk["choices"][0].get("delta", {}).get("content")
+            if delta:
+                yield delta
