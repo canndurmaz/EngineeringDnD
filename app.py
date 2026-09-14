@@ -19,7 +19,7 @@ from broker import EventBroker
 from engine.classes import STATS, load_catalog
 from engine.phases import PHASES, load_archetypes, load_hazard_templates
 from engine.rules import RuleError
-from service import MAX_SEATS, GameService, ServiceError
+from service import CHAT_MAX, MAX_SEATS, GameService, ServiceError
 
 
 NAME_MAX = 40  # the client's maxlength is UX only; this is the real limit
@@ -84,6 +84,46 @@ def _public_hazard(state: dict) -> "dict | None":
         "weakness": hazard["weakness"] if "weakness" in revealed else None,
         "dc": hazard["dc"] if "dc" in revealed else None,
     }
+
+
+def _system_map(state: dict, subsystems: list) -> dict:
+    """The schematic, as data: one node per subsystem with a colour for this
+    phase, and nothing else.
+
+    Deliberately no hazard names, descriptions, DCs or weaknesses -- the map is
+    broadcast to spectators and to players who have revealed nothing, so it
+    carries only where the work is, never what the work turns out to be. The one
+    hazard anybody may read is the active one, and that already goes out through
+    _public_hazard.
+    """
+    phase_index = state["room"]["phase_index"]
+    active_id = state.get("active_hazard_id")
+    here: dict = {}
+    for hazard in state["hazards"]:
+        if hazard["phase_index"] != phase_index:
+            continue
+        here.setdefault(hazard.get("subsystem") or "", []).append(hazard)
+
+    nodes = []
+    active_node = None
+    for subsystem in subsystems:
+        group = here.get(subsystem["id"], [])
+        if not group:
+            status = "clear"                     # nothing lives here this phase
+        elif any(h["id"] == active_id for h in group):
+            status = "active"
+            active_node = subsystem["id"]
+        elif all(h["defeated"] for h in group):
+            status = "done"
+        else:
+            status = "open"
+        nodes.append({
+            "id": subsystem["id"], "name": subsystem["name"],
+            "blurb": subsystem.get("blurb", ""), "status": status,
+            "problems": len(group),
+            "open": sum(1 for h in group if not h["defeated"]),
+        })
+    return {"nodes": nodes, "active_subsystem": active_node}
 
 
 def sse_frame(seq, kind, payload) -> str:
@@ -313,6 +353,8 @@ def create_app(config: "dict | None" = None) -> Flask:
                            "max": MAX_SEATS},
             "room": state["room"], "party": state["party"],
             "characters": state["characters"], "hazard": _public_hazard(state),
+            "map": _system_map(state, app.service.archetypes.get(
+                state["room"]["archetype"], {}).get("subsystems") or []),
             "active_hazard_id": state["active_hazard_id"],
             "turn": {**state["turn"], "active_player_id": active},
             "conditions": state["conditions"],
@@ -350,6 +392,36 @@ def create_app(config: "dict | None" = None) -> Flask:
             return jsonify({"error": "you are not seated in this room"}), 403
         outcome = app.service.end_turn(room_id, found["player_id"])
         return jsonify({"result": {"passed": True}, "events": outcome["events"]})
+
+    # --- party chat --------------------------------------------------------
+
+    @app.post("/api/rooms/<room_id>/chat")
+    def api_chat_post(room_id):
+        # Talking at the table is for people at the table. A spectator can read
+        # the conversation but cannot join it, same rule as /start and /bots.
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        raw = _body().get("body")
+        # A JSON body is attacker-controlled: a number or an object must be
+        # refused outright rather than stringified into somebody's chat line.
+        if not isinstance(raw, str):
+            raise ServiceError("a message needs some words")
+        body = raw.strip()
+        if not body:
+            raise ServiceError("a message needs some words")
+        if len(body) > CHAT_MAX:
+            raise ServiceError(f"a message is at most {CHAT_MAX} characters")
+        return jsonify(app.service.post_chat(room_id, found["player_id"], body))
+
+    @app.get("/api/rooms/<room_id>/chat")
+    def api_chat_get(room_id):
+        app.service.snapshot(room_id)      # unknown room -> ServiceError -> 400
+        try:
+            since = int(request.args.get("since") or 0)
+        except (TypeError, ValueError):
+            since = 0                      # a client bug, not a server error
+        return jsonify({"messages": app.service.chat_since(room_id, since)})
 
     # --- SSE ---------------------------------------------------------------
 

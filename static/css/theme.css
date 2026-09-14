@@ -160,6 +160,8 @@ input, select {
   .roll .rest { transition: none; }
   /* The lamp still shows its colour; it simply stops breathing. */
   .annunciator .lamp { animation: none; opacity: 1; }
+  /* The active node keeps its amber; it stops pulsing. */
+  .node.active rect { animation: none; }
 }
 
 /* --- the annunciator ------------------------------------------------------ */
@@ -280,6 +282,78 @@ input, select {
 .phase-track i.done { background: var(--cyan); }
 .phase-track i.now  { background: var(--amber); }
 
+/* --- the system map ------------------------------------------------------- */
+/* The machine the party is designing, drawn as a schematic. One node per
+   subsystem, on a fixed grid so a node never moves between renders -- only its
+   colour changes. Generated inline in game.js: no image files, no library. */
+.schematic-svg {
+  display: block; width: 100%; height: auto; max-width: 320px;
+  margin: 0 auto;
+}
+.schematic-svg .spine {
+  stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 5; opacity: .7;
+}
+.node rect {
+  fill: var(--panel-2); stroke: var(--line); stroke-width: 1;
+}
+.node text {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .04em;
+  fill: var(--ink-dim);
+}
+/* dim outline: nothing lives here this phase */
+.node.clear rect { fill: transparent; stroke-dasharray: 3 3; opacity: .55; }
+.node.clear text { opacity: .55; }
+/* red: an undefeated problem here that is not the one in front of you */
+.node.open rect { stroke: var(--red); fill: rgba(229,98,77,.10); }
+.node.open text { fill: var(--ink); }
+/* green: everything here is closed out */
+.node.done rect { stroke: var(--green); fill: rgba(98,201,138,.10); }
+.node.done text { fill: var(--green); }
+/* amber, and the only thing on this panel that moves */
+.node.active rect {
+  stroke: var(--amber); stroke-width: 1.5; fill: rgba(242,179,75,.14);
+  animation: node-live 1.9s ease-in-out infinite;
+}
+.node.active text { fill: var(--amber); }
+@keyframes node-live { 50% { fill: rgba(242,179,75,.30); } }
+
+/* --- table talk ----------------------------------------------------------- */
+.chat-log {
+  max-height: 34vh; min-height: 90px; overflow-y: auto;
+  border-bottom: 1px solid var(--line); padding-bottom: 8px;
+}
+.chat-msg { padding: 5px 0; font-size: 14px; line-height: 1.45; }
+.chat-msg + .chat-msg { border-top: 1px dashed rgba(43,54,68,.6); }
+.chat-who {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  color: var(--cyan); margin-right: 6px;
+}
+.chat-body { font-family: var(--sans); color: var(--ink); }
+.chat-form { display: flex; gap: 8px; margin-top: 10px; }
+.chat-form input {
+  flex: 1 1 auto; min-width: 0;
+  background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px;
+  padding: 7px 9px; font-family: var(--sans); font-size: 14px;
+}
+.chat-form input:disabled { opacity: .5; }
+.chat-form button {
+  flex: 0 0 auto; background: transparent; color: var(--cyan);
+  border: 1px solid var(--line); border-radius: 4px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
+  text-transform: uppercase; padding: 7px 10px; cursor: pointer;
+}
+.chat-form button:hover:not(:disabled) { border-color: var(--cyan); }
+.chat-form button:disabled { color: var(--ink-dim); cursor: default; }
+#chat-note { margin: 8px 0 0; border-left: 0; padding-left: 0; }
+#chat-note:empty { display: none; }
+
+/* Visible to a screen reader, and to nothing else. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
 /* --- avatars ------------------------------------------------------------- */
 .avatar {
   width: 32px; height: 32px; flex: 0 0 32px; display: block;
@@ -391,3 +465,4 @@ button.small { padding: 6px 12px; font-size: 12px; }
 .roll-row .clamped {
   font-family: var(--mono); font-size: 13px; color: var(--amber); cursor: help;
 }
+

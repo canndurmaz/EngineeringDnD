@@ -90,9 +90,9 @@ class RoomDB:
         column needs an idempotent ALTER here or save_state fails on every
         game created before the change.
         """
-        if not conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-                " AND name='characters'").fetchone():
+        tables = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'")}
+        if "characters" not in tables:
             return                      # a brand-new file; schema.sql runs next
         columns = {row[1] for row in conn.execute(
             "PRAGMA table_info(characters)")}
@@ -103,6 +103,22 @@ class RoomDB:
         if "is_bot" not in columns:
             conn.execute("ALTER TABLE characters"
                          " ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
+        hazard_columns = {row[1] for row in conn.execute(
+            "PRAGMA table_info(hazards)")}
+        if hazard_columns and "subsystem" not in hazard_columns:
+            conn.execute("ALTER TABLE hazards"
+                         " ADD COLUMN subsystem TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+        # A whole new table, not a column: CREATE TABLE IF NOT EXISTS is already
+        # idempotent, but schema.sql only ever runs on create, so an existing
+        # room would never see it without this line.
+        if "messages" not in tables:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS messages ("
+                " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " ts REAL NOT NULL, player_id TEXT, name TEXT NOT NULL,"
+                " body TEXT NOT NULL, is_bot INTEGER NOT NULL DEFAULT 0)")
             conn.commit()
 
     def close(self) -> None:
@@ -175,6 +191,12 @@ class RoomDB:
             row["revealed"] = json.loads(row["revealed"])
             row["defeated"] = bool(row["defeated"])
             row["is_boss"] = bool(row["is_boss"])
+            # Same rule as appearance and is_bot: an unplaced hazard carries no
+            # subsystem key at all, so a state that went in without one -- an
+            # old room, or a campaign built with no archetype list -- comes back
+            # out the same shape.
+            if not row["subsystem"]:
+                row.pop("subsystem")
             hazards.append(row)
 
         state = {
@@ -234,12 +256,13 @@ class RoomDB:
                 conn.execute(
                     "INSERT INTO hazards (id, phase_index, ordinal, name, description,"
                     " severity, max_severity, dc, attack_type, weakness, revealed,"
-                    " defeated, is_boss) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " defeated, is_boss, subsystem) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (hazard["id"], hazard["phase_index"], hazard["ordinal"],
                      hazard["name"], hazard["description"], hazard["severity"],
                      hazard["max_severity"], hazard["dc"], hazard["attack_type"],
                      hazard["weakness"], json.dumps(hazard["revealed"]),
-                     int(hazard["defeated"]), int(hazard["is_boss"])))
+                     int(hazard["defeated"]), int(hazard["is_boss"]),
+                     hazard.get("subsystem") or ""))
 
     # --- players -----------------------------------------------------------
 
@@ -309,6 +332,46 @@ class RoomDB:
     def latest_seq(self) -> int:
         row = self.connect().execute("SELECT MAX(seq) FROM events").fetchone()
         return row[0] or 0
+
+    # --- party chat --------------------------------------------------------
+
+    #: How much of the conversation a room keeps. Older lines are trimmed on
+    #: insert rather than by a sweep, so the table never grows unbounded and
+    #: there is no second job to forget to run.
+    MESSAGE_LIMIT = 200
+
+    @staticmethod
+    def _message_row(row) -> dict:
+        row = dict(row)
+        row["is_bot"] = bool(row["is_bot"])
+        return row
+
+    def add_message(self, player_id: "str | None", name: str, body: str,
+                    is_bot: bool = False) -> dict:
+        conn = self.connect()
+        now = time.time()
+        with conn:
+            cur = conn.execute(
+                "INSERT INTO messages (ts, player_id, name, body, is_bot)"
+                " VALUES (?,?,?,?,?)",
+                (now, player_id, name, body, int(bool(is_bot))))
+            message_id = cur.lastrowid
+            conn.execute("DELETE FROM messages WHERE id <= ?",
+                         (message_id - self.MESSAGE_LIMIT,))
+        return {"id": message_id, "ts": now, "player_id": player_id,
+                "name": name, "body": body, "is_bot": bool(is_bot)}
+
+    def messages_since(self, since: int = 0,
+                       limit: "int | None" = None) -> list:
+        limit = self.MESSAGE_LIMIT if limit is None else limit
+        rows = self.connect().execute(
+            "SELECT * FROM messages WHERE id > ? ORDER BY id LIMIT ?",
+            (since, limit))
+        return [self._message_row(row) for row in rows]
+
+    def message_count(self) -> int:
+        return self.connect().execute(
+            "SELECT COUNT(*) FROM messages").fetchone()[0]
 
     def create_narration(self, event_seq: int) -> None:
         conn = self.connect()
