@@ -5,7 +5,7 @@ bot that heals somebody and then says it is scoping the problem is worse than a
 bot that says nothing.
 """
 import pytest
-from bots import BOT_LINES, BotRunner, bot_line, decide, turn_number
+from bots import BOT_LINES, BotRunner, bot_line, decide
 from broker import EventBroker
 from engine.classes import load_catalog
 from engine.phases import load_archetypes, load_hazard_templates
@@ -52,13 +52,19 @@ def test_an_unknown_branch_falls_back_rather_than_raising():
     assert bot_line("nonsense", 0) in BOT_LINES["pass"]
 
 
-def test_the_turn_number_climbs_across_rounds():
-    state = {"turn": {"round": 1, "turn_index": 0, "order": ["a", "b"]}}
-    assert turn_number(state) == 0
-    state["turn"]["turn_index"] = 1
-    assert turn_number(state) == 1
-    state["turn"].update({"round": 2, "turn_index": 0})
-    assert turn_number(state) == 2
+def test_the_same_bot_does_not_repeat_itself_round_after_round(svc):
+    """The first counter tried was the turn ordinal, which advances by one seat
+    per round: with three seats and three phrasings a bot landed on the same
+    index every round and said the same sentence every time."""
+    room_id = _room_with_two_bots(svc)
+    runner = BotRunner(svc, svc.catalog, delay=0.0)
+    for _ in range(8):
+        if svc.snapshot(room_id)["room"]["status"] != "active":
+            break
+        runner.run_once()
+    bodies = [m["body"] for m in svc.chat_since(room_id, 0)]
+    assert len(bodies) >= 4
+    assert all(a != b for a, b in zip(bodies, bodies[1:]))
 
 
 # --- the branch the policy took --------------------------------------------
@@ -107,7 +113,7 @@ def test_the_line_it_posts_is_the_line_for_the_branch_it_took(svc):
     state = svc.snapshot(room_id)
     player_id = state["turn"]["order"][state["turn"]["turn_index"]]
     expected_branch = decide(state, player_id, svc.catalog)[2]
-    expected = bot_line(expected_branch, turn_number(state))
+    expected = bot_line(expected_branch, svc.chat_count(room_id))
 
     BotRunner(svc, svc.catalog, delay=0.0).run_once()
     [message] = svc.chat_since(room_id, 0)
@@ -160,5 +166,25 @@ def test_two_bots_in_a_row_do_not_say_the_same_thing(svc):
     runner.run_once()
     bodies = [m["body"] for m in svc.chat_since(room_id, 0)]
     assert len(bodies) == 2
-    if bodies[0] in BOT_LINES.get("attack", []) and bodies[1] in BOT_LINES["attack"]:
-        assert bodies[0] != bodies[1]
+    assert bodies[0] != bodies[1]
+
+
+def test_each_line_sits_at_the_index_its_position_implies(svc):
+    """Deterministic, not random: the nth line said at this table is the nth
+    phrasing of whatever branch the bot took."""
+    room_id = _room_with_two_bots(svc)
+    runner = BotRunner(svc, svc.catalog, delay=0.0)
+    for _ in range(4):
+        runner.run_once()
+    messages = svc.chat_since(room_id, 0)
+    assert len(messages) >= 3
+    for index, message in enumerate(messages):
+        branch = next(b for b, lines in BOT_LINES.items()
+                      if message["body"] in lines)
+        assert message["body"] == bot_line(branch, index)
+
+
+def test_no_two_branches_share_a_line():
+    """Otherwise a line could not be read back as the reason for a move."""
+    every = [line for lines in BOT_LINES.values() for line in lines]
+    assert len(every) == len(set(every))

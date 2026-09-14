@@ -306,6 +306,11 @@ class GameService:
             self._publish(room_id, room.events_since(start_seq))
         return message
 
+    def chat_count(self, room_id: str) -> int:
+        """How many lines this room has heard. The bots rotate their phrasings
+        on it, so it has to come from the room's own durable history."""
+        return self._room(room_id).message_count()
+
     def chat_since(self, room_id: str, since: int = 0) -> list:
         return self._room(room_id).messages_since(since)
 

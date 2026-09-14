@@ -257,28 +257,23 @@ BOT_LINES = {
 }
 
 
-def turn_number(state: dict) -> int:
-    """A counter that goes up by one every turn, for rotating the lines.
-
-    Rounds restart the index, so the round has to be folded in or the same seat
-    would get the same line every round.
-    """
-    turn = state.get("turn") or {}
-    order = turn.get("order") or []
-    return max(0, int(turn.get("round", 1)) - 1) * max(1, len(order)) \
-        + int(turn.get("turn_index", 0))
-
-
-def bot_line(branch: str, turn: int) -> str:
-    """The line for this branch on this turn.
+def bot_line(branch: str, spoken: int) -> str:
+    """The line for this branch, given how many lines the table has already heard.
 
     Rotation, not choice: Random(n).choice() over a three-item list returns the
     same element for runs of consecutive n, which is how a bot ends up saying
     the same sentence three turns running. Same reasoning as
     narrator.fallback._pick, and the same fix.
+
+    The counter is the room's own line count rather than the turn ordinal, which
+    was the first thing tried and is quietly broken: a turn ordinal advances by
+    one seat per round, so with three seats and three phrasings a bot lands on
+    the same index every single round. A line count advances by exactly one per
+    line, so two lines in a row are never the same sentence -- and it is still
+    the room's durable history, so a replay says the same things.
     """
     options = BOT_LINES.get(branch) or BOT_LINES["pass"]
-    return options[turn % len(options)]
+    return options[max(0, int(spoken)) % len(options)]
 
 
 # --- running the turn --------------------------------------------------------
@@ -400,16 +395,15 @@ class BotRunner:
             log.exception("bot runner could not read the DM gate for %s", room_id)
             return False
 
-    def _say(self, room_id: str, player_id: str, state: dict,
-             branch: str) -> None:
+    def _say(self, room_id: str, player_id: str, branch: str) -> None:
         """One line of table talk explaining the move it is about to make.
 
         Best effort: a bot that cannot get a word in still takes its turn. The
         chat is commentary, and commentary must never be able to wedge the game.
         """
         try:
-            self.service.post_chat(room_id, player_id,
-                                   bot_line(branch, turn_number(state)))
+            spoken = self.service.chat_count(room_id)
+            self.service.post_chat(room_id, player_id, bot_line(branch, spoken))
         except Exception:
             log.info("bot %s could not speak", player_id, exc_info=True)
 
@@ -419,7 +413,7 @@ class BotRunner:
             ability_id, target_id, branch = decide(state, player_id, self.catalog)
         # Said before the roll, because it is the reason for the move and not a
         # report of how it went -- that is the DM's job.
-        self._say(room_id, player_id, state, branch)
+        self._say(room_id, player_id, branch)
         if ability_id is None:
             self.service.end_turn(room_id, player_id)
             return
