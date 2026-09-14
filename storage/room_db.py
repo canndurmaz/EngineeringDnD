@@ -2,6 +2,7 @@
 """One SQLite database per room. The source of truth for a single game."""
 from __future__ import annotations
 
+import contextlib
 import json
 import sqlite3
 import threading
@@ -108,8 +109,34 @@ class RoomDB:
 
     # --- state -------------------------------------------------------------
 
+    @staticmethod
+    @contextlib.contextmanager
+    def _snapshot(conn: sqlite3.Connection):
+        """One WAL read snapshot for every SELECT inside the block.
+
+        Without it each SELECT takes its own snapshot, so a read that
+        interleaves with another player's write can return `characters` from
+        after the commit and `turn_state` from before it -- the UI then briefly
+        enables ability buttons for the wrong player. BEGIN DEFERRED takes no
+        lock and blocks no writer; it only pins what this reader sees.
+        """
+        if conn.in_transaction:             # already inside one; do not nest
+            yield
+            return
+        conn.execute("BEGIN DEFERRED")
+        try:
+            yield
+        finally:
+            # Read-only either way: COMMIT on a deferred read-only transaction
+            # releases the snapshot and writes nothing.
+            conn.execute("COMMIT")
+
     def load_state(self) -> dict:
         conn = self.connect()
+        with self._snapshot(conn):
+            return self._read_state(conn)
+
+    def _read_state(self, conn: sqlite3.Connection) -> dict:
         room = dict(conn.execute("SELECT * FROM room WHERE id = ?",
                                  (self.room_id,)).fetchone())
         party = dict(conn.execute("SELECT * FROM party WHERE id = 1").fetchone())

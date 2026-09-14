@@ -243,3 +243,104 @@ def test_appearance_round_trips_as_json(room):
     loaded = room.load_state()
     assert loaded["characters"]["p1"]["appearance"] == s["characters"]["p1"]["appearance"]
     assert "appearance" not in loaded["characters"]["p2"]
+
+
+def _saved(room, **turn):
+    """Save a full state, with turn_state fields overridden."""
+    state = make_state()
+    state["room"].update({"id": "abc123", "name": "K", "archetype": "aircraft",
+                          "rng_seed": 1, "premise": "p"})
+    state["turn"].update(turn)
+    room.save_state(state)
+    return state
+
+
+def test_load_state_reads_one_snapshot_not_five(tmp_path, room):
+    """A read that interleaves with another player's commit must not return
+    `characters` from after the write and `turn_state` from before it."""
+    import threading
+
+    seat(room, make_state())
+    _saved(room, turn_index=0)
+
+    reader = RoomDB.open(str(tmp_path), "abc123")
+    conn = reader.connect()
+    try:
+        with reader._snapshot(conn):
+            # BEGIN DEFERRED takes the snapshot at the first read, not at BEGIN.
+            conn.execute("SELECT id FROM room").fetchone()
+
+            def writer():
+                other = RoomDB.open(str(tmp_path), "abc123")
+                state = other.load_state()
+                state["turn"]["turn_index"] = 1
+                state["characters"]["p1"]["stamina"] = 3
+                other.save_state(state)
+                other.close()
+
+            thread = threading.Thread(target=writer)
+            thread.start()
+            thread.join()
+
+            inside = reader._read_state(conn)
+
+        assert inside["turn"]["turn_index"] == 0
+        assert inside["characters"]["p1"]["stamina"] != 3
+        # and once the snapshot is released, the committed write is visible
+        after = reader.load_state()
+        assert after["turn"]["turn_index"] == 1
+        assert after["characters"]["p1"]["stamina"] == 3
+    finally:
+        reader.close()
+
+
+def test_load_state_leaves_no_transaction_open(room):
+    seat(room, make_state())
+    _saved(room)
+    room.load_state()
+    assert room.connect().in_transaction is False
+
+
+def test_load_state_writes_nothing(tmp_path, room):
+    seat(room, make_state())
+    _saved(room, turn_index=1)
+    before = (tmp_path / "abc123" / "game.db").read_bytes()
+    for _ in range(3):
+        room.load_state()
+    assert (tmp_path / "abc123" / "game.db").read_bytes() == before
+
+
+def test_concurrent_readers_never_see_a_torn_state(tmp_path, room):
+    """turn_index and the character marker are written together; a reader that
+    ever sees them disagree has read across two snapshots."""
+    import threading
+
+    seat(room, make_state())
+    _saved(room, turn_index=0)
+    torn, stop = [], threading.Event()
+
+    def write():
+        other = RoomDB.open(str(tmp_path), "abc123")
+        for i in range(60):
+            state = other.load_state()
+            state["turn"]["turn_index"] = i % 2
+            state["characters"]["p1"]["level"] = (i % 2) + 1
+            other.save_state(state)
+        stop.set()
+        other.close()
+
+    def read():
+        other = RoomDB.open(str(tmp_path), "abc123")
+        while not stop.is_set():
+            state = other.load_state()
+            if state["characters"]["p1"]["level"] != state["turn"]["turn_index"] + 1:
+                torn.append(state)
+        other.close()
+
+    threads = [threading.Thread(target=write)] + [
+        threading.Thread(target=read) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+    assert torn == []
