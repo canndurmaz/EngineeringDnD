@@ -75,8 +75,30 @@ class RoomDB:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA foreign_keys = ON")
             conn.execute("PRAGMA busy_timeout = 5000")
+            self._migrate(conn)
             self._local.conn = conn
         return conn
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Bring an older room database up to the current schema.
+
+        schema.sql is all CREATE TABLE IF NOT EXISTS, so a database written
+        before a column existed never gains it -- the script is a no-op on a
+        table that is already there. Rooms outlive releases, so each added
+        column needs an idempotent ALTER here or save_state fails on every
+        game created before the change.
+        """
+        if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name='characters'").fetchone():
+            return                      # a brand-new file; schema.sql runs next
+        columns = {row[1] for row in conn.execute(
+            "PRAGMA table_info(characters)")}
+        if "appearance" not in columns:
+            conn.execute("ALTER TABLE characters"
+                         " ADD COLUMN appearance TEXT NOT NULL DEFAULT '{}'")
+            conn.commit()
 
     def close(self) -> None:
         conn = getattr(self._local, "conn", None)
@@ -105,6 +127,11 @@ class RoomDB:
                 "unlocked": json.loads(row["unlocked"]),
                 "used": json.loads(row["used"]),
             }
+            # An empty appearance is left off entirely rather than stored as {}:
+            # a state that went in without the key comes back out the same shape.
+            appearance = json.loads(row["appearance"] or "{}")
+            if appearance:
+                characters[row["player_id"]]["appearance"] = appearance
 
         hazards = []
         for row in conn.execute(
@@ -158,12 +185,13 @@ class RoomDB:
             for char in state["characters"].values():
                 conn.execute(
                     "INSERT INTO characters (player_id, name, class_id, stats, level,"
-                    " stamina, max_stamina, focus, max_focus, unlocked, used)"
-                    " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    " stamina, max_stamina, focus, max_focus, unlocked, used,"
+                    " appearance) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                     (char["player_id"], char["name"], char["class_id"],
                      json.dumps(char["stats"]), char["level"], char["stamina"],
                      char["max_stamina"], char["focus"], char["max_focus"],
-                     json.dumps(char["unlocked"]), json.dumps(char["used"])))
+                     json.dumps(char["unlocked"]), json.dumps(char["used"]),
+                     json.dumps(char.get("appearance") or {})))
 
             conn.execute("DELETE FROM hazards")
             for hazard in state["hazards"]:

@@ -1,4 +1,7 @@
 import json
+import pathlib
+import sqlite3
+
 import pytest
 from storage.room_db import RoomDB, RoomNotFound
 from tests.engine.test_effects import make_state
@@ -155,3 +158,88 @@ def test_list_room_ids_finds_created_rooms(tmp_path, room):
 def test_list_room_ids_ignores_directories_without_a_database(tmp_path, room):
     (tmp_path / "junk").mkdir()
     assert "junk" not in RoomDB.list_room_ids(str(tmp_path))
+
+
+# --- appearance and the legacy-database migration --------------------------
+
+def _legacy_schema() -> str:
+    """schema.sql as it read before characters gained an appearance column."""
+    schema = (pathlib.Path("storage") / "schema.sql").read_text()
+    return schema.replace(
+        "    used         TEXT NOT NULL,\n"
+        "    appearance   TEXT NOT NULL DEFAULT '{}'\n",
+        "    used         TEXT NOT NULL\n")
+
+
+def _make_legacy_room(tmp_path, room_id="old123"):
+    """Hand-build a room database the way an earlier release left it."""
+    path = tmp_path / room_id / "game.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
+    conn.executescript(_legacy_schema())
+    now = 1700000000.0
+    conn.execute(
+        "INSERT INTO room (id, name, premise, archetype, phase_index, status,"
+        " rng_seed, created_at, last_active) VALUES (?,?,?,?,0,'lobby',?,?,?)",
+        (room_id, "Kestrel", "p", "aircraft", 4242, now, now))
+    conn.execute("INSERT INTO party (id) VALUES (1)")
+    conn.execute("INSERT INTO turn_state (id) VALUES (1)")
+    conn.commit()
+    assert "appearance" not in {
+        row[1] for row in conn.execute("PRAGMA table_info(characters)")}
+    conn.close()
+    return path
+
+
+def test_a_database_without_the_appearance_column_gains_it(tmp_path):
+    _make_legacy_room(tmp_path)
+    db = RoomDB.open(str(tmp_path), "old123")
+    columns = {row[1] for row in
+               db.connect().execute("PRAGMA table_info(characters)")}
+    assert "appearance" in columns
+    db.close()
+
+
+def test_a_legacy_database_still_loads_and_saves(tmp_path):
+    """The real regression: save_state used to fail outright on an old room."""
+    _make_legacy_room(tmp_path)
+    db = RoomDB.open(str(tmp_path), "old123")
+    state = db.load_state()
+    assert state["characters"] == {}
+
+    fresh = make_state()
+    fresh["room"].update({"id": "old123", "name": "Kestrel",
+                          "archetype": "aircraft", "rng_seed": 4242,
+                          "premise": "p"})
+    fresh["characters"]["p1"]["appearance"] = {"hair": "BOB", "skin": "BROWN"}
+    seat(db, fresh)
+    db.save_state(fresh)
+    assert db.load_state() == fresh
+    db.close()
+
+
+def test_the_migration_is_idempotent(tmp_path):
+    _make_legacy_room(tmp_path)
+    for _ in range(3):
+        db = RoomDB.open(str(tmp_path), "old123")
+        db.connect()
+        db.close()
+    db = RoomDB.open(str(tmp_path), "old123")
+    columns = [row[1] for row in
+               db.connect().execute("PRAGMA table_info(characters)")]
+    assert columns.count("appearance") == 1
+    db.close()
+
+
+def test_appearance_round_trips_as_json(room):
+    s = make_state()
+    s["room"].update({"id": "abc123", "name": "K", "archetype": "aircraft",
+                      "rng_seed": 1, "premise": "p"})
+    s["characters"]["p1"]["appearance"] = {"hair": "DREADS", "eyes": "WINK",
+                                           "outfit": "HOODIE", "face": "SMILE",
+                                           "skin": "DARK_BROWN"}
+    seat(room, s)
+    room.save_state(s)
+    loaded = room.load_state()
+    assert loaded["characters"]["p1"]["appearance"] == s["characters"]["p1"]["appearance"]
+    assert "appearance" not in loaded["characters"]["p2"]

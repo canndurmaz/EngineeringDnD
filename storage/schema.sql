@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS characters (
     focus        INTEGER NOT NULL,
     max_focus    INTEGER NOT NULL,
     unlocked     TEXT NOT NULL,
-    used         TEXT NOT NULL
+    used         TEXT NOT NULL,
+    appearance   TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS hazards (
