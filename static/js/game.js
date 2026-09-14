@@ -197,8 +197,14 @@ function renderAnnunciator(state) {
   if (status === "lobby") {
     lamp = "lobby";
     word = "waiting";
-    say = `${seated} seated. Start when everyone's in.`;
+    /* Only a seated engineer can start: /start answers 403 to anyone else, so
+       telling a spectator to "start when everyone's in" is an instruction they
+       cannot carry out. They are told what is actually true of them instead,
+       and get no button. */
     offerStart = !!state.you;
+    say = offerStart
+      ? `${seated} seated. Start when everyone's in.`
+      : `${seated} seated. Waiting for a seated engineer to start.`;
   } else if (status === "won") {
     lamp = "won";
     word = "shipped";

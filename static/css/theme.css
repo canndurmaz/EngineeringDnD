@@ -192,7 +192,18 @@ input, select {
 }
 .ann-say { color: var(--ink-dim); }
 .ann-say::before { content: "\00b7"; margin-right: 10px; color: var(--line); }
-#ann-start { flex: 0 0 auto; }
+/* The band is already the loudest thing on the page; its one action sits
+   inside it quietly -- the lamp's own colour on a hairline, not a filled
+   slab competing with it. :focus-visible above still draws the keyboard. */
+#ann-start {
+  flex: 0 0 auto;
+  background: transparent; color: var(--lamp, var(--amber));
+  border: 1px solid var(--lamp, var(--line));
+  font-family: var(--mono); font-size: 12px; font-weight: 600;
+  letter-spacing: .08em; padding: 6px 12px;
+}
+#ann-start:hover:not(:disabled) { background: var(--panel); }
+#ann-start:disabled { color: var(--ink-dim); border-color: var(--line); background: transparent; }
 #ann-error { flex: 1 0 100%; margin: 0; font-size: 13px; }
 #ann-error:empty { display: none; }
 
