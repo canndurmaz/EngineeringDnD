@@ -11,6 +11,7 @@ from engine.effects import expire_conditions
 from engine.phases import (PHASES, advance_phase, build_campaign,
                            check_end_conditions, next_hazard_id, phase_cleared)
 from engine.rules import RuleError, advance_turn, hazard_attack, resolve_action
+from narrator.genesis import genesis_jobs
 from storage.index_db import IndexDB
 from storage.room_db import RoomDB, RoomNotFound
 
@@ -89,6 +90,7 @@ class GameService:
         room.append_event("room_created", None,
                           {"name": name, "archetype": archetype})
         self._reindex(room_id, state)
+        self.enqueue_genesis(room_id)
         return room_id
 
     def list_rooms(self) -> list:
@@ -315,3 +317,35 @@ class GameService:
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)
+
+    # --- genesis -----------------------------------------------------------
+
+    def set_premise(self, room_id: str, text: str) -> None:
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            state["room"]["premise"] = text.strip()
+            room.save_state(state)
+
+    def rename_hazards(self, room_id: str, phase_index: int, entries: list) -> None:
+        """Rewrite prose only. Severity, DC, attack type and weakness are untouched."""
+        if not entries:
+            return
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            targets = [h for h in state["hazards"]
+                       if h["phase_index"] == phase_index
+                       and not h["is_boss"] and not h["defeated"]]
+            for hazard, (name, description) in zip(targets, entries):
+                hazard["name"] = name
+                hazard["description"] = description
+            room.save_state(state)
+
+    def enqueue_genesis(self, room_id: str) -> None:
+        if self.queue is None:
+            return
+        state = self.snapshot(room_id)
+        archetype = self.archetypes[state["room"]["archetype"]]
+        for job in genesis_jobs(room_id, state, archetype):
+            self.queue.submit(job)

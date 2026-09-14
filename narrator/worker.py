@@ -86,16 +86,50 @@ class NarrationWorker:
         return self.fallback.narrate(job), self.fallback.name
 
     def _handle(self, job: dict) -> None:
+        kind = job.get("kind", "turn")
+        if kind == "genesis":
+            return self._handle_premise(job)
+        if kind == "hazards":
+            return self._handle_hazards(job)
+        return self._handle_turn(job)
+
+    def _handle_turn(self, job: dict) -> None:
         room_id, event_seq = job["room_id"], job.get("event_seq")
         room = self.service._room(room_id)
         if event_seq is not None:
             room.update_narration(event_seq, "streaming", "", "")
-
         text, source = self._generate(job)
-
         if event_seq is not None:
             room.update_narration(event_seq, "done", text, source)
         payload = {"event_seq": event_seq, "text": text, "source": source,
                    "job_kind": job.get("kind", "turn")}
         seq = room.append_event("narration", None, payload)
         self.broker.publish(room_id, {"seq": seq, "kind": "narration", **payload})
+
+    def _handle_premise(self, job: dict) -> None:
+        text, source = self._generate(job)
+        self.service.set_premise(job["room_id"], text)
+        room = self.service._room(job["room_id"])
+        payload = {"premise": text, "source": source}
+        seq = room.append_event("premise", None, payload)
+        self.broker.publish(job["room_id"],
+                            {"seq": seq, "kind": "premise", **payload})
+
+    def _handle_hazards(self, job: dict) -> None:
+        from narrator.genesis import parse_hazard_lines
+        try:
+            raw = self._pool.submit(self.narrator.narrate, job).result(
+                timeout=self.deadline)
+            entries = parse_hazard_lines(raw, job["count"])
+        except Exception:
+            log.info("hazard generation failed; keeping template hazards")
+            return                      # the deterministic hazards stay in place
+        if not entries:
+            return
+        self.service.rename_hazards(job["room_id"], job["phase_index"], entries)
+        room = self.service._room(job["room_id"])
+        payload = {"phase_index": job["phase_index"],
+                   "names": [n for n, _ in entries]}
+        seq = room.append_event("campaign_updated", None, payload)
+        self.broker.publish(job["room_id"],
+                            {"seq": seq, "kind": "campaign_updated", **payload})
