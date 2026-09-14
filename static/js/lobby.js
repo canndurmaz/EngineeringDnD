@@ -56,19 +56,42 @@ if (createForm) {
   });
 }
 
+/* --- avatars --------------------------------------------------------------- */
+/* The order the pickers appear in. Labels and ids both come from the server,
+   so a curated list can change without touching this file. */
+const LOOK_KINDS = [["hair", "Hair"], ["face", "Face"], ["eyes", "Eyes"],
+                    ["outfit", "Outfit"], ["skin", "Skin"]];
+
+/* Builds /api/avatar.svg?... . This lands in an HTML *attribute*, so each part
+   is URL-encoded here and the whole thing goes through esc() at the call site:
+   encodeURIComponent stops a value breaking out of the query string, esc()
+   stops it breaking out of the attribute. */
+const avatarUrl = (look) => "/api/avatar.svg?" + LOOK_KINDS
+  .map(([kind]) => `${encodeURIComponent(kind)}=${encodeURIComponent((look || {})[kind] ?? "")}`)
+  .join("&");
+
+const avatarTag = (look, cls = "avatar") =>
+  `<img class="${esc(cls)}" alt="" src="${esc(avatarUrl(look))}" loading="lazy">`;
+
 /* --- character select ------------------------------------------------------ */
 const seatForm = document.getElementById("seat");
 if (seatForm) {
   const roomId = window.ROOM_ID;
   let taken = new Set();
+  let options = {};
+  let look = {};
 
   const refresh = async () => {
     const state = await api(`/api/rooms/${roomId}/state`);
     taken = new Set(Object.values(state.characters).map((c) => c.class_id));
     document.getElementById("roster").innerHTML =
       Object.values(state.characters).map((c) => `
-        <div class="member"><div class="who">
-          <span>${esc(c.name)}</span><span class="stats">${esc(c.class_id.replace(/_/g, " "))}</span>
+        <div class="member"><div class="member-row">
+          ${avatarTag(c.appearance)}
+          <div class="lines"><div class="who">
+            <span>${esc(c.name)}</span>
+            <span class="stats">${esc(c.class_id.replace(/_/g, " "))}</span>
+          </div></div>
         </div></div>`).join("") || "<p class='roll'>Nobody seated yet.</p>";
     if (state.room.premise) show("genesis", state.room.premise);
     if (state.you) location.href = `/room/${roomId}`;
@@ -94,12 +117,68 @@ if (seatForm) {
       try {
         await api(`/api/rooms/${roomId}/join`, {
           method: "POST",
-          body: JSON.stringify({ display_name: name, class_id: button.dataset.class }),
+          body: JSON.stringify({ display_name: name, class_id: button.dataset.class,
+                                 appearance: look }),
         });
         location.href = `/room/${roomId}`;
       } catch (error) { show("join-error", error.message); }
     });
   };
+
+  /* --- appearance pickers -------------------------------------------------- */
+  const preview = document.getElementById("avatar-preview");
+  const pickers = document.getElementById("pickers");
+
+  const labelFor = (kind) =>
+    (options[kind].find((entry) => entry.id === look[kind]) || options[kind][0]).label;
+
+  const paint = () => {
+    preview.src = avatarUrl(look);
+    LOOK_KINDS.forEach(([kind]) => {
+      const node = pickers.querySelector(`[data-value="${kind}"]`);
+      if (node) node.textContent = labelFor(kind);   // textContent, never innerHTML
+    });
+  };
+
+  /* Wraps at both ends so every option is a few clicks away in either direction. */
+  const step = (kind, delta) => {
+    const list = options[kind];
+    const at = Math.max(0, list.findIndex((entry) => entry.id === look[kind]));
+    look[kind] = list[(at + delta + list.length) % list.length].id;
+    paint();
+  };
+
+  const randomise = () => {
+    LOOK_KINDS.forEach(([kind]) => {
+      const list = options[kind];
+      look[kind] = list[Math.floor(Math.random() * list.length)].id;
+    });
+    paint();
+  };
+
+  const drawPickers = (served) => {
+    options = served;
+    pickers.innerHTML = LOOK_KINDS.map(([kind, title]) => `
+      <div class="picker">
+        <button type="button" class="arrow" data-kind="${esc(kind)}" data-delta="-1"
+                aria-label="Previous ${esc(title.toLowerCase())}">&lsaquo;</button>
+        <span class="swatch">
+          <span class="kind">${esc(title)}</span>
+          <span class="value" data-value="${esc(kind)}"></span>
+        </span>
+        <button type="button" class="arrow" data-kind="${esc(kind)}" data-delta="1"
+                aria-label="Next ${esc(title.toLowerCase())}">&rsaquo;</button>
+      </div>`).join("");
+
+    pickers.addEventListener("click", (event) => {
+      const arrow = event.target.closest("[data-kind]");
+      if (arrow) step(arrow.dataset.kind, Number(arrow.dataset.delta));
+    });
+    document.getElementById("randomise").addEventListener("click", randomise);
+    randomise();          // nobody should have to build an avatar from scratch
+  };
+
+  api("/api/appearance-options").then(drawPickers);
 
   document.getElementById("start").addEventListener("click", async () => {
     try {

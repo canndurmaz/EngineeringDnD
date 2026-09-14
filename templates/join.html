@@ -14,6 +14,15 @@
     <h2>Choose your discipline</h2>
     <form id="seat">
       <input id="display-name" placeholder="Your name" required maxlength="24">
+
+      <div class="avatar-studio">
+        <div class="avatar-stage">
+          <img id="avatar-preview" class="avatar avatar-lg" alt="Preview of your avatar">
+          <button type="button" id="randomise" class="ghost small">Randomise</button>
+        </div>
+        <div class="pickers" id="pickers"></div>
+      </div>
+
       <p id="join-error" class="debt" role="alert"></p>
       <div class="card-grid" id="classes" style="margin-top:14px"></div>
     </form>

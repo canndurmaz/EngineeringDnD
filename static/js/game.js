@@ -17,6 +17,13 @@ const api = async (url, options) => {
   return body;
 };
 
+/* The party panel's avatar. The URL goes into an HTML attribute, so every part
+   is URL-encoded and the result is escaped -- same rule as lobby.js. */
+const LOOK_KINDS = ["hair", "face", "eyes", "outfit", "skin"];
+const avatarUrl = (look) => "/api/avatar.svg?" + LOOK_KINDS
+  .map((kind) => `${encodeURIComponent(kind)}=${encodeURIComponent((look || {})[kind] ?? "")}`)
+  .join("&");
+
 const bar = (value, max, kind) => `
   <div class="bar-track"><div class="bar-fill ${kind}"
     style="width:${max ? Math.max(0, Math.min(100, (value / max) * 100)) : 0}%"></div></div>`;
@@ -28,11 +35,17 @@ function renderParty(state) {
     const active = state.turn.active_player_id === c.player_id;
     const down = c.stamina <= 0;
     return `<div class="member ${active ? "active" : ""} ${down ? "down" : ""}">
-      <div class="who">
-        <span>${esc(c.name)}${down ? " · burned out" : ""}</span>
-        <span class="num">L${c.level}</span>
+      <div class="member-row">
+        <img class="avatar" alt="" loading="lazy"
+             src="${esc(avatarUrl(c.appearance))}">
+        <div class="lines">
+          <div class="who">
+            <span>${esc(c.name)}${down ? " · burned out" : ""}</span>
+            <span class="num">L${c.level}</span>
+          </div>
+          <div class="role">${esc(c.class_id.replace(/_/g, " "))}</div>
+        </div>
       </div>
-      <div class="role">${esc(c.class_id.replace(/_/g, " "))}</div>
       <div class="num" style="font-size:12px">
         ${c.stamina}/${c.max_stamina} stamina</div>
       ${bar(c.stamina, c.max_stamina, "stamina")}
