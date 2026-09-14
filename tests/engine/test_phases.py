@@ -174,3 +174,43 @@ def test_partial_burnout_does_not_lose():
 
 def test_healthy_game_has_no_end_condition():
     assert check_end_conditions(make_state()) is None
+
+
+# --- the breather a cleared gate buys ---------------------------------------
+
+def test_clearing_a_phase_restores_stamina_to_half_of_maximum(cat, templates):
+    """A campaign of five phases against one pool that never refills is
+    arithmetic, not a game. Half, so progress relieves the pressure without
+    erasing what the phase cost."""
+    s = make_state()
+    s["hazards"] = build_campaign(Dice(3), templates)
+    s["characters"]["p1"]["stamina"] = 1
+    advance_phase(s, cat, {"p1": "RIGOR", "p2": "GRIT"})
+    char = s["characters"]["p1"]
+    assert char["stamina"] == char["max_stamina"] // 2
+
+
+def test_a_cleared_phase_never_costs_stamina_somebody_still_has(cat, templates):
+    s = make_state()
+    s["hazards"] = build_campaign(Dice(3), templates)
+    s["characters"]["p1"]["stamina"] = s["characters"]["p1"]["max_stamina"]
+    before = s["characters"]["p1"]["stamina"]
+    advance_phase(s, cat, {"p1": "RIGOR", "p2": "GRIT"})
+    assert s["characters"]["p1"]["stamina"] >= before
+
+
+def test_the_breather_is_half_a_heal_and_not_a_full_one(cat, templates):
+    s = make_state()
+    s["hazards"] = build_campaign(Dice(3), templates)
+    for char in s["characters"].values():
+        char["stamina"] = 1
+    advance_phase(s, cat, {"p1": "RIGOR", "p2": "GRIT"})
+    assert all(c["stamina"] < c["max_stamina"] for c in s["characters"].values())
+
+
+def test_a_burned_out_engineer_is_still_revived_first(cat, templates):
+    s = make_state()
+    s["hazards"] = build_campaign(Dice(3), templates)
+    s["characters"]["p2"]["stamina"] = 0
+    advance_phase(s, cat, {"p1": "RIGOR", "p2": "GRIT"})
+    assert s["characters"]["p2"]["stamina"] > 0

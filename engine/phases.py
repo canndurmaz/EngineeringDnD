@@ -152,6 +152,11 @@ def advance_phase(state, catalog: Catalog, stat_choices: dict) -> dict:
             char["stamina"] = 1          # revived, but only just
         levelled[player_id] = level_up(
             char, catalog, stat_choices.get(player_id, "GRIT"), new_index)
+        # Clearing a gate buys the party a breather, not a fresh start: stamina
+        # comes back up to half of maximum and no further. Without it a campaign
+        # is arithmetic -- five phases of damage against one pool that never
+        # refills -- and with a full heal the damage stops mattering at all.
+        char["stamina"] = max(char["stamina"], char["max_stamina"] // 2)
 
     state["active_hazard_id"] = next_hazard_id(state)
     state["turn"]["round"] = 1
