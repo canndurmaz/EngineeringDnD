@@ -88,6 +88,16 @@ def create_app(config: "dict | None" = None) -> Flask:
     app.config.update(ROOMS_ROOT="rooms", DATA_DIR="data", NARRATION=None)
     app.config.update(config or {})
     app.secret_key = app.config.get("SECRET_KEY") or _secret_key()
+    # The signed session cookie is the only identity check in the app, and
+    # /end-turn and /start read no body -- without SameSite a cross-site
+    # auto-submitting form could silently pass a player's turn on repeat, or
+    # start a game while people are still choosing classes. Lax still sends the
+    # cookie on ordinary top-level navigation, so a shared room link works.
+    # Flask ships SESSION_COOKIE_SAMESITE as an explicit None, so setdefault
+    # would not touch it; only override when a caller has not chosen.
+    if not app.config.get("SESSION_COOKIE_SAMESITE"):
+        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config["SESSION_COOKIE_HTTPONLY"] = True
 
     data_dir = app.config["DATA_DIR"]
     catalog = load_catalog(data_dir)
