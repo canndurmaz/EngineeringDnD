@@ -24,6 +24,9 @@ _ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no look-alike characters
 # than seats on purpose: filling a room with bots should still leave choices.
 MAX_SEATS = 6
 
+#: The longest line anyone -- player or bot -- may put on the table.
+CHAT_MAX = 500
+
 #: How long the table will wait for the DM before it gives up and plays on. The
 #: gate exists so the story cannot fall behind the game; the deadline exists so
 #: a wedged model cannot freeze a table forever.
@@ -117,7 +120,9 @@ class GameService:
         room = RoomDB.create(self.root, room_id, name, archetype, seed)
         self._rooms[room_id] = room
         state = room.load_state()
-        state["hazards"] = build_campaign(Dice(seed), self.templates)
+        state["hazards"] = build_campaign(
+            Dice(seed), self.templates,
+            self.archetypes[archetype].get("subsystems"))
         state["active_hazard_id"] = next_hazard_id(state)
         room.save_state(state)
         room.append_event("room_created", None,
@@ -265,6 +270,44 @@ class GameService:
         if stat not in STATS:
             raise ServiceError(f"unknown stat: {stat}")
         self._level_choices.setdefault(room_id, {})[player_id] = stat
+
+    # --- party chat ---------------------------------------------------------
+
+    def subsystems(self, room_id: str) -> list:
+        """The archetype's subsystem list for this room, or [] for an archetype
+        written before they existed."""
+        state = self.snapshot(room_id)
+        archetype = self.archetypes.get(state["room"]["archetype"]) or {}
+        return list(archetype.get("subsystems") or [])
+
+    def post_chat(self, room_id: str, player_id: "str | None",
+                  body: str) -> dict:
+        """One line of table talk. The speaker's name comes from the room's own
+        character, never from the request -- a body cannot forge a sender."""
+        body = str(body or "").strip()
+        if not body:
+            raise ServiceError("a message needs some words")
+        if len(body) > CHAT_MAX:
+            raise ServiceError(f"a message is at most {CHAT_MAX} characters")
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            char = state["characters"].get(player_id) or {}
+            name = char.get("name") or "Unknown"
+            is_bot = bool(char.get("is_bot"))
+            start_seq = room.latest_seq()
+            message = room.add_message(player_id, name, body, is_bot)
+            # The line goes in the event log as well as the messages table, so a
+            # client that reconnects with ?since= replays the conversation in
+            # the same stream as everything else that happened.
+            room.append_event("chat", player_id, {
+                "message_id": message["id"], "name": name, "body": body,
+                "is_bot": is_bot})
+            self._publish(room_id, room.events_since(start_seq))
+        return message
+
+    def chat_since(self, room_id: str, since: int = 0) -> list:
+        return self._room(room_id).messages_since(since)
 
     # --- the DM gate --------------------------------------------------------
 
