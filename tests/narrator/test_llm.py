@@ -92,3 +92,41 @@ def test_genesis_job_gets_a_larger_token_budget(tmp_path):
     LlamaNarrator(str(path), loader=loader_for(model)).narrate(
         {"kind": "genesis", "room_name": "Kestrel", "archetype_hint": "a car"})
     assert model.calls[0][1]["max_tokens"] > 140
+
+
+def test_loader_gets_the_cpu_tuned_defaults(tmp_path):
+    """A small KV cache costs less memory bandwidth per step; a bigger batch
+    prefills the (short) prompt faster."""
+    path = tmp_path / "m.gguf"
+    path.write_bytes(b"x")
+    load = loader_for(StubModel())
+    LlamaNarrator(str(path), loader=load).narrate(turn_job())
+    assert load.kwargs == {"n_ctx": 1024, "n_threads": 2, "n_batch": 512}
+
+
+def test_explicit_arguments_still_beat_the_defaults(tmp_path):
+    path = tmp_path / "m.gguf"
+    path.write_bytes(b"x")
+    load = loader_for(StubModel())
+    LlamaNarrator(str(path), loader=load, n_ctx=8192, n_batch=64).narrate(turn_job())
+    assert load.kwargs["n_ctx"] == 8192 and load.kwargs["n_batch"] == 64
+
+
+def test_the_environment_can_retune_the_loader(tmp_path, monkeypatch):
+    monkeypatch.setenv("CP_N_CTX", "2048")
+    monkeypatch.setenv("CP_N_THREADS", "4")
+    monkeypatch.setenv("CP_N_BATCH", "256")
+    path = tmp_path / "m.gguf"
+    path.write_bytes(b"x")
+    load = loader_for(StubModel())
+    LlamaNarrator(str(path), loader=load).narrate(turn_job())
+    assert load.kwargs == {"n_ctx": 2048, "n_threads": 4, "n_batch": 256}
+
+
+def test_an_unparseable_environment_value_falls_back(tmp_path, monkeypatch):
+    monkeypatch.setenv("CP_N_CTX", "banana")
+    path = tmp_path / "m.gguf"
+    path.write_bytes(b"x")
+    load = loader_for(StubModel())
+    LlamaNarrator(str(path), loader=load).narrate(turn_job())     # must not raise
+    assert load.kwargs["n_ctx"] == 1024

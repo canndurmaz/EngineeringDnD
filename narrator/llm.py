@@ -6,6 +6,7 @@ import logging
 import threading
 from pathlib import Path
 
+from narrator import settings
 from narrator.prompts import GENESIS_SAMPLING, SAMPLING, build
 
 log = logging.getLogger(__name__)
@@ -27,12 +28,16 @@ def _default_loader(path: str, **kwargs):
 class LlamaNarrator:
     name = "llm"
 
-    def __init__(self, model_path: str, loader=None, n_ctx: int = 4096,
-                 n_threads: int = 2, n_batch: int = 256) -> None:
+    def __init__(self, model_path: str, loader=None, n_ctx: "int | None" = None,
+                 n_threads: "int | None" = None,
+                 n_batch: "int | None" = None) -> None:
         self.model_path = Path(model_path)
         self._loader = loader or _default_loader
-        self._settings = {"n_ctx": n_ctx, "n_threads": n_threads,
-                          "n_batch": n_batch}
+        self._settings = {
+            "n_ctx": settings.n_ctx() if n_ctx is None else n_ctx,
+            "n_threads": settings.n_threads() if n_threads is None else n_threads,
+            "n_batch": settings.n_batch() if n_batch is None else n_batch,
+        }
         self._model = None
         self._guard = threading.Lock()
 
