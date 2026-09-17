@@ -44,7 +44,10 @@ CREATE TABLE IF NOT EXISTS characters (
     unlocked     TEXT NOT NULL,
     used         TEXT NOT NULL,
     appearance   TEXT NOT NULL DEFAULT '{}',
-    is_bot       INTEGER NOT NULL DEFAULT 0
+    is_bot       INTEGER NOT NULL DEFAULT 0,
+    office_zone  TEXT NOT NULL DEFAULT 'floor',
+    desk         TEXT NOT NULL DEFAULT '{}',
+    coffee_used  INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS hazards (
