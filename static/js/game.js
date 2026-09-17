@@ -9,6 +9,7 @@ let PRIMARY = {};
 let CLASS_NAMES = {};          // class_id -> the display name /api/classes gives
 let lastState = null;          // the most recent snapshot, for naming actors
 let levelStat = null;          // what this player has chosen, if anything
+let closed = false;            // set once an admin deletes this room; never cleared
 
 /* Anything already committed when the stream opens is history, not news --
    see isLive(). */
@@ -543,8 +544,28 @@ function renderEvent(event) {
 
 /* --- wiring --------------------------------------------------------------- */
 
+/* An admin deleted the room. Its files are gone from play, so every further
+   request would only answer "no such room": say so once, in the band, and
+   switch the table off rather than letting buttons fail one by one. */
+const CLOSED_MESSAGE = "This room was closed by an admin.";
+
+function closeRoom(message) {
+  closed = true;
+  const band = el("annunciator");
+  if (band) band.dataset.state = "lost";
+  el("ann-word").textContent = "closed";
+  el("ann-say").textContent = message || CLOSED_MESSAGE;   // plain text only
+  el("ann-start").hidden = true;
+  el("ann-skip").hidden = true;
+  el("ann-error").textContent = "";
+  document.querySelectorAll("main button, main input, main select, main textarea")
+    .forEach((node) => { node.disabled = true; });
+}
+
 async function refresh() {
+  if (closed) return null;
   const state = await api(`/api/rooms/${ROOM}/state`);
+  if (closed) return null;           // the room closed while this was in flight
   lastState = state;
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
   renderLevelChoice(state); renderMap(state); renderChatSeat(state);
@@ -562,9 +583,21 @@ async function connect() {
   try {
     const state = await api(`/api/rooms/${ROOM}/state`);
     replayUntil = Math.max(replayUntil, state.latest_seq || 0);
-  } catch (error) { /* the stream still works; nothing will animate */ }
+  } catch (error) {
+    /* A room deleted while this tab was disconnected never sent room_closed
+       to it; the server's "no such room" is the same news. */
+    if (/^no such room/.test(error.message)) { closeRoom(); return; }
+    /* otherwise the stream still works; nothing will animate */
+  }
+  if (closed) return;
   const source = new EventSource(`/api/rooms/${ROOM}/stream?since=${lastSeq}`);
   source.onmessage = () => {};
+  source.addEventListener("room_closed", (message) => {
+    source.close();                  // and no reconnect: there is nothing to rejoin
+    let text = CLOSED_MESSAGE;
+    try { text = JSON.parse(message.data).message || CLOSED_MESSAGE; } catch (e) { /* keep default */ }
+    closeRoom(text);
+  });
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
    "campaign_updated", "passed", "room_created", "interlude", "hazard_rule",
@@ -580,6 +613,7 @@ async function connect() {
   });
   source.onerror = () => {
     source.close();
+    if (closed) return;
     setTimeout(connect, 2000);       // reconnect resumes from lastSeq
   };
 }

@@ -495,3 +495,24 @@ button.small { padding: 6px 12px; font-size: 12px; }
   color: var(--amber);
   font-weight: 700;
 }
+
+/* --- admin pane --------------------------------------------------------- */
+.admin-login { max-width: 360px; }
+.admin-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.admin-create { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.admin-table-wrap { overflow-x: auto; margin-top: 18px; border: 1px solid var(--line); border-radius: 6px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th, .admin-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.admin-table th { color: var(--ink-dim); font-weight: 600; background: var(--panel); }
+.admin-table tbody tr:hover { background: var(--panel-2); }
+.admin-table .num { font-family: var(--mono); }
+.admin-table .actions { display: flex; gap: 6px; }
+.admin-table .st { font-family: var(--mono); }
+.admin-table .st-active { color: var(--cyan); }
+.admin-table .st-lobby  { color: var(--amber); }
+.admin-table .st-won    { color: var(--green); }
+.admin-table .st-lost   { color: var(--red); }
+button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
+a.btn.small { padding: 6px 12px; font-size: 12px; text-decoration: none; }
+.admin-create input, .admin-create select { width: auto; flex: 1 1 160px; }
+.admin-root [hidden] { display: none !important; }

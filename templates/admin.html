@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Admin · Critical Path{% endblock %}
+{% block content %}
+<div id="admin-root" class="admin-root" data-admin="{{ 'yes' if is_admin else 'no' }}">
+
+<section class="panel admin-login" id="admin-login" {% if is_admin %}hidden{% endif %}>
+  <h2>Admin</h2>
+  <form id="login-form">
+    <label for="admin-password">Password</label>
+    <input id="admin-password" type="password" autocomplete="current-password" required>
+    <button type="submit" style="margin-top:12px">Log in</button>
+    <p id="login-error" class="debt" role="alert"></p>
+  </form>
+</section>
+
+<div id="admin-pane" {% if not is_admin %}hidden{% endif %}>
+  <div class="admin-head">
+    <h2>Rooms</h2>
+    <button type="button" class="ghost small" id="admin-logout">Log out</button>
+  </div>
+
+  <section class="panel">
+    <h2>New room</h2>
+    <form id="admin-create" class="admin-create">
+      <label for="admin-name">Name</label>
+      <input id="admin-name" maxlength="40" required>
+      <label for="admin-archetype">System</label>
+      <select id="admin-archetype">
+        {% for a in archetypes %}
+        <option value="{{ a.id }}">{{ a.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit">Create</button>
+    </form>
+    <p id="create-result" class="roll" aria-live="polite"></p>
+    <p id="admin-create-error" class="debt" role="alert"></p>
+  </section>
+
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr><th>Code</th><th>Name</th><th>System</th><th>Status</th>
+            <th>Humans</th><th>Bots</th><th>Last active</th><th>Size</th><th></th></tr>
+      </thead>
+      <tbody id="admin-rooms"><tr><td colspan="9" class="roll">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  <p id="admin-error" class="debt" role="alert"></p>
+</div>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

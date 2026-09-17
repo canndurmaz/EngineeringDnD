@@ -1,12 +1,14 @@
 """Flask application: HTML pages, JSON API, and the SSE event stream."""
 from __future__ import annotations
 
+import hmac
 import io
 import json
 import os
 import queue
 import secrets
 import stat
+import time
 from pathlib import Path
 
 import segno
@@ -141,8 +143,20 @@ def sse_frame(seq, kind, payload) -> str:
     client's last-event-ID untouched, which is exactly what a preview wants.
     """
     body = json.dumps({"seq": seq, "kind": kind, **payload})
-    head = "" if kind == "narration_chunk" else f"id: {seq}\n"
+    # room_closed is not in the room's log either (the log is in the trash by
+    # the time it is sent), so it must not move the client's resume point.
+    head = "" if kind in ("narration_chunk", "room_closed") else f"id: {seq}\n"
     return f"{head}event: {kind}\ndata: {body}\n\n"
+
+
+ADMIN_ENV = "CP_ADMIN_PASSWORD"
+ADMIN_FAIL_DELAY = 0.5
+
+
+def admin_password() -> str:
+    """The admin password, or "" when the admin pane is switched off. Read per
+    request so the pane follows the environment it is actually running in."""
+    return os.environ.get(ADMIN_ENV, "")
 
 
 def create_app(config: "dict | None" = None) -> Flask:
@@ -261,16 +275,18 @@ def create_app(config: "dict | None" = None) -> Flask:
     def api_rooms():
         return jsonify({"rooms": app.service.list_rooms()})
 
-    @app.post("/api/rooms")
-    def api_create_room():
+    def _create_room_from_body():
         body = _body()
         name = _text(body.get("name"))
         if not name:
             raise ServiceError("a room needs a name")
         if len(name) > NAME_MAX:
             raise ServiceError(f"a room name is at most {NAME_MAX} characters")
-        room_id = app.service.create_room(name, _text(body.get("archetype")))
-        return jsonify({"room_id": room_id}), 201
+        return app.service.create_room(name, _text(body.get("archetype")))
+
+    @app.post("/api/rooms")
+    def api_create_room():
+        return jsonify({"room_id": _create_room_from_body()}), 201
 
     @app.post("/api/rooms/<room_id>/join")
     def api_join(room_id):
@@ -459,6 +475,8 @@ def create_app(config: "dict | None" = None) -> Flask:
                         yield ": keep-alive\n\n"     # keeps proxies from timing out
                         continue
                     yield sse_frame(item["seq"], item["kind"], item)
+                    if item["kind"] == "room_closed":
+                        return               # nothing more will ever be written
             finally:
                 app.broker.unsubscribe(room_id, q)
 
@@ -503,6 +521,89 @@ def create_app(config: "dict | None" = None) -> Flask:
         segno.make(join_url, error="m").save(buffer, kind="svg", scale=4,
                                              dark="#0f141a", light="#ffffff")
         return Response(buffer.getvalue(), mimetype="image/svg+xml")
+
+    # --- admin -------------------------------------------------------------
+    #
+    # Off unless CP_ADMIN_PASSWORD is set; when off, every admin URL is a 404 so
+    # the pane does not even admit to existing. The flag lives in the same
+    # signed session cookie as the seats.
+
+    def require_admin():
+        """None when the caller may proceed, else the response to return."""
+        if not admin_password():
+            abort(404)
+        if session.get("admin") is not True:
+            return jsonify({"error": "admin login required"}), 403
+        return None
+
+    @app.get("/admin")
+    def page_admin():
+        if not admin_password():
+            abort(404)
+        return render_template("admin.html", archetypes=app.archetypes,
+                               is_admin=session.get("admin") is True,
+                               narrator_name=app.config.get("NARRATOR_NAME",
+                                                            "template"))
+
+    @app.post("/api/admin/login")
+    def api_admin_login():
+        expected = admin_password()
+        if not expected:
+            abort(404)
+        given = _body().get("password")
+        given = given if isinstance(given, str) else ""
+        if not hmac.compare_digest(given.encode(), expected.encode()):
+            time.sleep(ADMIN_FAIL_DELAY)
+            return jsonify({"error": "wrong password"}), 403
+        session["admin"] = True
+        return jsonify({"ok": True})
+
+    @app.post("/api/admin/logout")
+    def api_admin_logout():
+        if not admin_password():
+            abort(404)
+        session.pop("admin", None)
+        return jsonify({"ok": True})
+
+    @app.get("/api/admin/rooms")
+    def api_admin_rooms():
+        denied = require_admin()
+        if denied:
+            return denied
+        rows = []
+        for room in app.service.list_rooms():
+            bots = room.get("bot_count") or 0
+            rows.append({
+                "room_id": room["room_id"], "name": room["name"],
+                "archetype": room["archetype"], "status": room["status"],
+                "phase_index": room["phase_index"],
+                "humans": room["player_count"] - bots, "bots": bots,
+                "last_active": room["last_active"],
+                "size_bytes": app.service.room_size(room["room_id"]),
+            })
+        return jsonify({"rooms": rows})
+
+    @app.post("/api/admin/rooms")
+    def api_admin_create_room():
+        denied = require_admin()
+        if denied:
+            return denied
+        room_id = _create_room_from_body()
+        return jsonify({"room_id": room_id,
+                        "join_url": url_for("page_join", room_id=room_id,
+                                            _external=True)}), 201
+
+    @app.delete("/api/admin/rooms/<room_id>")
+    def api_admin_delete_room(room_id):
+        denied = require_admin()
+        if denied:
+            return denied
+        # The typed confirmation is checked here too, not only in the page: a
+        # scripted or mistaken call must name the room it means to delete.
+        if _text(_body().get("confirm")) != room_id:
+            raise ServiceError("type the room code exactly to delete it")
+        trashed = app.service.delete_room(room_id)
+        return jsonify({"ok": True, "trashed_to": Path(trashed).name})
 
     return app
 
