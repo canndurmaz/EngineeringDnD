@@ -85,7 +85,7 @@
   /* Where someone standing in `zone` is drawn. `slot` spreads a crowd. */
   function anchor(zone, slot) {
     let x = 480, y = 405;
-    if (zone === "lab") { x = 150; y = 120; }
+    if (zone === "lab") { x = 330; y = 110; }
     else if (zone === "break_room") { x = 640; y = 120; }
     else if (zone === "whiteboard") { x = 780; y = 492; }
     else if (zone && zone.startsWith("desk:")) {
@@ -93,7 +93,7 @@
       if (i >= 0) { x = deskCenter(i); y = 330; }
     }
     const s = slot || 0;
-    return { x: x + ((s % 3) - 1) * 26, y: y + Math.floor(s / 3) * 22 };
+    return { x: x + [0, -26, 26][s % 3], y: y + Math.floor(s / 3) * 22 };
   }
 
   function regionOf(p) {

@@ -532,7 +532,10 @@ button.small { padding: 6px 12px; font-size: 12px; }
 }
 .office-canvas:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .office-canvas canvas { display: block; }
-.office-help { margin: 8px 0 0; font-size: 12px; color: var(--ink-dim); }
+.office-help {
+  margin: 8px 0 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+}
+.office-where { color: var(--cyan); letter-spacing: .08em; }
 
 .office-prompt { margin: 0 0 10px; font-size: 14px; line-height: 1.45; }
 .office-use { width: 100%; }
