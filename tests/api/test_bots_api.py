@@ -161,7 +161,9 @@ def test_run_once_plays_the_bots_turn(client, app):
     assert _runner(app).run_once() == 1
     kinds = [(e["kind"], e["actor"])
              for e in app.service.events_since(room_id, since)]
-    assert (("action", bot_id) in kinds) or (("passed", bot_id) in kinds)
+    # An office place action (the lab bench, the coffee machine) is a turn too.
+    assert (("action", bot_id) in kinds) or (("passed", bot_id) in kinds) \
+        or (("place_action", bot_id) in kinds)
     after = app.service.snapshot(room_id)
     assert after["turn"]["order"][after["turn"]["turn_index"]] != bot_id
 

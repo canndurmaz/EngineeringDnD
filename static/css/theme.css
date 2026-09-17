@@ -516,3 +516,68 @@ button.danger { background: transparent; color: var(--red); border: 1px solid va
 a.btn.small { padding: 6px 12px; font-size: 12px; text-decoration: none; }
 .admin-create input, .admin-create select { width: auto; flex: 1 1 160px; }
 .admin-root [hidden] { display: none !important; }
+
+
+/* --- the office ------------------------------------------------------------ */
+/* Board / Office tabs, and the walkable floor. Same tokens as everything else;
+   the canvas itself reads them through getComputedStyle. */
+[hidden] { display: none !important; }
+
+.view-tabs {
+  display: flex; gap: 4px; margin: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.view-tab {
+  background: transparent; color: var(--ink-dim);
+  border: 1px solid transparent; border-bottom: 0;
+  border-radius: 4px 4px 0 0; padding: 7px 16px;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+  text-transform: uppercase; font-weight: 600;
+}
+.view-tab:hover { color: var(--ink); }
+.view-tab[aria-selected="true"] {
+  color: var(--cyan); background: var(--panel);
+  border-color: var(--line); margin-bottom: -1px;
+}
+
+.office-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px; align-items: start;
+}
+@media (max-width: 1000px) { .office-grid { grid-template-columns: 1fr; } }
+
+.office-canvas {
+  width: 100%; aspect-ratio: 16 / 9; background: var(--ground);
+  border: 1px solid var(--line); border-radius: 4px; overflow: hidden;
+  touch-action: manipulation;
+}
+.office-canvas:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.office-canvas canvas { display: block; }
+.office-help {
+  margin: 8px 0 0; font-family: var(--mono); font-size: 12px; color: var(--ink-dim);
+}
+.office-where { color: var(--cyan); letter-spacing: .08em; }
+
+.office-prompt { margin: 0 0 10px; font-size: 14px; line-height: 1.45; }
+.office-use { width: 100%; }
+.office-error { margin: 8px 0 0; }
+.office-error:empty { display: none; }
+
+.desk-form { display: grid; grid-template-columns: auto 1fr; gap: 8px 10px; align-items: center; }
+.desk-form label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--ink-dim);
+}
+.desk-form select { padding: 6px 8px; }
+.desk-form button { grid-column: 1 / -1; }
+.desk-note { margin: 8px 0 0; }
+.desk-note:empty { display: none; }
+
+.office-chat-slot:empty { display: none; }
+.office-chat-slot > .panel { margin-top: 0 !important; }
+
+.entry .roll.place { color: var(--green); }
+
+@media (prefers-reduced-motion: reduce) {
+  .view-tab { transition: none; }
+}

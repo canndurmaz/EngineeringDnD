@@ -15,6 +15,7 @@ from engine.character import new_character_detailed
 from engine.classes import STATS, Catalog
 from engine.dice import Dice
 from engine.effects import expire_conditions
+from engine import places
 from engine.phases import (PHASES, advance_phase, build_campaign,
                            check_end_conditions, next_hazard_id, phase_cleared)
 from engine.rules import (RuleError, advance_turn, end_of_round,
@@ -481,6 +482,7 @@ class GameService:
             summary = advance_phase(state, self.catalog,
                                     self._stat_choices(room_id, state))
             self._level_choices.pop(room_id, None)
+            places.reset_phase(state)       # a new phase refills the coffee
             events.append(room.append_event("phase_advanced", None, summary))
             if not summary.get("won"):
                 # Staged, not submitted: the narrator must never see a phase the
@@ -512,6 +514,24 @@ class GameService:
         if status != "active":
             raise ServiceError("this game is over")
 
+    def _close_turn(self, room: RoomDB, state: dict, event_seqs: list,
+                    dice: "Dice | None" = None) -> None:
+        """Pass the turn on, and if that finished the round, let the hazard
+        answer. Shared by every way a turn can end -- an ability, a place
+        action, or a pass -- so the three can never disagree about a round."""
+        round_done = advance_turn(state)
+        if not round_done:
+            return
+        attack = hazard_attack(state, dice if dice is not None else self._dice(state))
+        expire_conditions(state)
+        state["party"]["schedule"] -= 1
+        event_seqs.append(room.append_event("hazard_attack", None, attack))
+        # A gate boss that grows while it is still standing does so once
+        # per round, here, and not on a fumble's extra attack.
+        escalated = end_of_round(state)
+        if escalated:
+            event_seqs.append(room.append_event("hazard_rule", None, escalated))
+
     def act(self, room_id: str, player_id: str, ability_id: str,
             target_id: "str | None" = None) -> dict:
         ability = self.catalog.abilities.get(ability_id)
@@ -540,19 +560,7 @@ class GameService:
             })
             room.create_narration(action_seq)
             event_seqs = [action_seq]
-
-            round_done = advance_turn(state)
-            if round_done:
-                attack = hazard_attack(state, dice)
-                expire_conditions(state)
-                state["party"]["schedule"] -= 1
-                event_seqs.append(room.append_event("hazard_attack", None, attack))
-                # A gate boss that grows while it is still standing does so once
-                # per round, here, and not on a fumble's extra attack.
-                escalated = end_of_round(state)
-                if escalated:
-                    event_seqs.append(room.append_event(
-                        "hazard_rule", None, escalated))
+            self._close_turn(room, state, event_seqs, dice)
 
             self._after_turn(room_id, room, state, event_seqs)
             room.save_state(state)              # commit BEFORE queueing narration
@@ -583,15 +591,7 @@ class GameService:
                 raise RuleError("It is not your turn.")
             start_seq = room.latest_seq()
             room.append_event("passed", player_id, {})
-            round_done = advance_turn(state)
-            if round_done:
-                attack = hazard_attack(state, self._dice(state))
-                expire_conditions(state)
-                state["party"]["schedule"] -= 1
-                room.append_event("hazard_attack", None, attack)
-                escalated = end_of_round(state)
-                if escalated:
-                    room.append_event("hazard_rule", None, escalated)
+            self._close_turn(room, state, [])
             self._after_turn(room_id, room, state, [])
             room.save_state(state)
             self._reindex(room_id, state)
@@ -599,6 +599,105 @@ class GameService:
             outcome = {"events": room.events_since(start_seq)}
         self._flush_phase_jobs(room_id)
         return outcome
+
+    # --- the office ---------------------------------------------------------
+
+    # Walking is free and positions are zones, not pixels: a client animates
+    # the walk however it likes and tells the server only when it crosses into
+    # a different zone. Place actions are the office's version of an ability --
+    # same lock, same gate, same turn, same narration.
+
+    def office_move(self, room_id: str, player_id: str, zone) -> dict:
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            char = state["characters"].get(player_id)
+            if char is None:
+                raise ServiceError("you are not seated in this room")
+            if not places.is_zone(state, zone):
+                raise ServiceError(f"no such place in the office: {zone}")
+            before = places.zone_of(char)
+            if before == zone:
+                return {"zone": zone, "moved": False}
+            char["office_zone"] = zone
+            room.save_state(state)
+            start_seq = room.latest_seq()
+            room.append_event("office_move", player_id, {
+                "player_id": player_id, "name": char["name"],
+                "from": before, "zone": zone,
+                "is_bot": bool(char.get("is_bot"))})
+            self._publish(room_id, room.events_since(start_seq))
+        return {"zone": zone, "moved": True}
+
+    def office_act(self, room_id: str, player_id: str, action: str,
+                   target_id: "str | None" = None) -> dict:
+        if action not in places.PLACE_ACTIONS:
+            raise ServiceError(f"unknown place action: {action}")
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            self._require_dm_done(room_id)
+            self._require_running(state)
+            char = state["characters"].get(player_id)
+            zone = places.zone_of(char) if char else None
+            changes = places.resolve_place(state, player_id, action, target_id)
+            name = places.PLACE_ACTIONS[action]["name"]
+            action_seq = room.append_event("place_action", player_id, {
+                "action": action, "action_name": name, "zone": zone,
+                "partner_id": places.desk_owner(zone),
+                "outcome": "success", "changes": changes,
+            })
+            room.create_narration(action_seq)
+            event_seqs = [action_seq]
+            self._close_turn(room, state, event_seqs)
+            self._after_turn(room_id, room, state, event_seqs)
+            room.save_state(state)              # commit BEFORE queueing narration
+            self._reindex(room_id, state)
+            self._publish(room_id, room.events_since(action_seq - 1))
+            if self.queue is not None:
+                self._dm_gate[room_id] = {
+                    "event_seq": action_seq,
+                    "deadline": time.monotonic() + dm_wait_seconds()}
+
+        self._flush_phase_jobs(room_id)
+        self._enqueue_place_narration(room_id, player_id, action_seq, state,
+                                      name, changes)
+        return {"event_seq": action_seq, "action": action, "outcome": "success",
+                "changes": changes,
+                "events": self._room(room_id).events_since(action_seq - 1)}
+
+    def set_desk(self, room_id: str, player_id: str, desk) -> dict:
+        """Cosmetic, so it costs no turn and ignores the DM gate. Anything not
+        on the option lists falls back to the default."""
+        clean = places.normalise_desk(desk)
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            char = state["characters"].get(player_id)
+            if char is None:
+                raise ServiceError("you are not seated in this room")
+            char["desk"] = clean
+            room.save_state(state)
+            start_seq = room.latest_seq()
+            room.append_event("desk_updated", player_id,
+                              {"player_id": player_id, "desk": clean})
+            self._publish(room_id, room.events_since(start_seq))
+        return {"desk": clean}
+
+    def office(self, state: dict) -> dict:
+        """The office block of /state: zones, desks, and who stands where."""
+        return {
+            "zones": places.zones(state),
+            "fixed_zones": list(places.FIXED_ZONES),
+            "desks": [{**d, "desk": places.normalise_desk(
+                           state["characters"][d["player_id"]].get("desk"))}
+                      for d in places.desk_assignments(state)],
+            "positions": {pid: places.zone_of(c)
+                          for pid, c in state["characters"].items()},
+            "actions": {k: v["name"] for k, v in places.PLACE_ACTIONS.items()},
+            "desk_options": places.DESK_OPTIONS,
+            "coffee_limit": places.COFFEE_LIMIT,
+        }
 
     # --- narration hand-off -------------------------------------------------
 
@@ -670,6 +769,32 @@ class GameService:
             "same_engineer": self._previous_actor(room_id, event_seq) == player_id,
         })
 
+    def _enqueue_place_narration(self, room_id, player_id, event_seq, state,
+                                 action_name, changes) -> None:
+        """A place action narrates like an ability that could not miss."""
+        if self.queue is None:
+            return
+        hazard = next((h for h in state["hazards"]
+                       if h["id"] == state.get("active_hazard_id")), None)
+        char = state["characters"][player_id]
+        remaining = None
+        if hazard and hazard.get("max_severity"):
+            remaining = max(0.0, hazard["severity"] / hazard["max_severity"])
+        self.queue.submit({
+            "kind": "turn", "priority": 0, "room_id": room_id,
+            "event_seq": event_seq,
+            "actor_name": char["name"],
+            "actor_class": self.catalog.classes[char["class_id"]].name,
+            "premise": state["room"].get("premise", ""),
+            "phase": PHASES[state["room"]["phase_index"]][1],
+            "hazard": hazard, "ability_name": action_name,
+            "outcome": "success", "natural": None, "total": None, "dc": None,
+            "changes": changes,
+            "history": self._recent_narration(room_id),
+            "severity_remaining": remaining,
+            "same_engineer": self._previous_actor(room_id, event_seq) == player_id,
+        })
+
     # --- test seams ---------------------------------------------------------
 
     def _set_party(self, room_id: str, **fields) -> None:
@@ -678,6 +803,14 @@ class GameService:
             room = self._room(room_id)
             state = room.load_state()
             state["party"].update(fields)
+            room.save_state(state)
+
+    def _set_character(self, room_id: str, player_id: str, **fields) -> None:
+        """Force character fields. Tests only; never called by the app."""
+        with self._lock(room_id):
+            room = self._room(room_id)
+            state = room.load_state()
+            state["characters"][player_id].update(fields)
             room.save_state(state)
 
     def _force_defeat_active_hazard(self, room_id: str) -> None:

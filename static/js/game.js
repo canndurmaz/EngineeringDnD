@@ -453,6 +453,21 @@ const LABELS = {
   },
 };
 
+/* A place action from the office. Like an ability it owes the table a line
+   of narration, so its entry stays pending until the prose lands. */
+const PLACE_WHERE = { bench_test: "in the lab", coffee_break: "in the break room",
+                      pair_up: "at a colleague's desk" };
+
+function placeLine(event) {
+  const who = actorName(event) || "An engineer";
+  let partner = "";
+  if (event.partner_id && lastState && lastState.characters[event.partner_id]) {
+    partner = ` with ${esc(lastState.characters[event.partner_id].name)}`;
+  }
+  return `${esc(who)} · ${esc(event.action_name || event.action)}${partner}
+    · ${esc(PLACE_WHERE[event.action] || "in the office")}`;
+}
+
 const logLine = (event) => {
   const build = LABELS[event.kind];
   return build ? build(event) : null;
@@ -534,6 +549,20 @@ function renderEvent(event) {
     return;
   }
 
+  if (event.kind === "place_action") {
+    const node = entryFor(event.seq);
+    node.insertAdjacentHTML("afterbegin",
+      `<div class="roll success place">${placeLine(event)}</div>`);
+    if (lastState) renderAnnunciator(lastState);
+    return;
+  }
+
+  /* Walking is shown on the office floor, not in the story log. */
+  if (event.kind === "office_move") {
+    if (window.Office) window.Office.onMove(event, isLive(event));
+    return;
+  }
+
   const line = logLine(event);
   if (line) {
     const node = entryFor(event.seq);
@@ -570,6 +599,9 @@ async function refresh() {
   renderParty(state); renderHazard(state); renderRail(state); renderAbilities(state);
   renderLevelChoice(state); renderMap(state); renderChatSeat(state);
   renderAnnunciator(state);
+  /* The office draws from the same snapshot; it is optional, so a page
+     without Phaser still plays from the board. */
+  if (window.Office) window.Office.update(state);
   el("dm-badge").textContent = `DM: ${state.narrator ?? "template"}`;
   if (state.room.premise) el("premise").textContent = state.room.premise;
   return state;
@@ -601,13 +633,16 @@ async function connect() {
   ["action", "narration", "narration_chunk", "premise", "hazard_attack", "hazard_defeated",
    "phase_advanced", "game_over", "player_joined", "game_started",
    "campaign_updated", "passed", "room_created", "interlude", "hazard_rule",
-   "bot_added", "bot_removed", "dm_skipped", "chat"].forEach((kind) => {
+   "bot_added", "bot_removed", "dm_skipped",
+   "office_move", "place_action", "desk_updated", "chat"].forEach((kind) => {
     source.addEventListener(kind, (message) => {
       const event = JSON.parse(message.data);
       renderEvent(event);
       /* A line of talk changes no board state, so it is not worth a round trip
          for a fresh snapshot. */
       if (event.kind === "chat") return;
+      /* A walk changes nobody's numbers; the office animates it itself. */
+      if (event.kind === "office_move") return;
       if (event.kind !== "narration_chunk") refresh();
     });
   });

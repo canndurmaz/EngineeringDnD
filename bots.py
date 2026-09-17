@@ -21,6 +21,7 @@ import re
 import threading
 import time
 
+from engine import places
 from engine.classes import Ability, Catalog
 from engine.effects import condition_total
 from engine.hazard_rules import damage_floor, neutralises
@@ -163,6 +164,39 @@ def _most_hurt(state: dict, player_id: str) -> "str | None":
     return min(hurt)[2]
 
 
+# --- the office ------------------------------------------------------------
+
+#: Branches that are place actions rather than abilities: branch -> (zone,
+#: action). A bot walks to the zone, then takes the action.
+PLACE_BRANCHES = {
+    "lab": (places.LAB, "bench_test"),
+    "coffee": (places.BREAK_ROOM, "coffee_break"),
+}
+
+
+def _place_legal(state: dict, player_id: str, zone: str, action: str) -> bool:
+    """Would `action` be legal once this bot had walked to `zone`?
+
+    Asked of engine.places itself on a copy with the zone swapped in, for the
+    same reason _legal_abilities asks engine.rules: a second copy of the rules
+    is how a bot proposes a move the server then refuses. Nothing is mutated.
+    """
+    char = state["characters"].get(player_id)
+    if char is None:
+        return False
+    moved = {**state, "characters": {**state["characters"],
+                                     player_id: {**char, "office_zone": zone}}}
+    try:
+        places.validate_place(moved, player_id, action)
+    except RuleError:
+        return False
+    return True
+
+
+def _below_half(char: dict) -> bool:
+    return char["stamina"] * 2 < char["max_stamina"]
+
+
 # --- the policy --------------------------------------------------------------
 
 def decide(state: dict, player_id: str,
@@ -182,8 +216,8 @@ def decide(state: dict, player_id: str,
     if char is None:
         return None, None, "pass"
     options = _legal_abilities(state, player_id, catalog)
-    if not options:
-        return None, None, "pass"       # nothing affordable; pass the turn
+    # The office costs no Focus, so an empty hand does not end the search
+    # yet: a walk to the lab or the break room may still be worth the turn.
     # A boss rule can cancel a move outright. Spending the turn to watch nothing
     # happen is the trap the rule exists to set, and a bot should read the card.
     hazard_now = _active_hazard(state)
@@ -196,9 +230,14 @@ def decide(state: dict, player_id: str,
         healers = [a for a in options if _heals(a)]
         if healers:
             return healers[0].id, wounded, "heal"
+        # No heal in hand. Coffee only helps the one who drinks it, so it is
+        # worth the turn only when this bot is itself one of the hurt.
+        zone, action = PLACE_BRANCHES["coffee"]
+        if _below_half(char) and _place_legal(state, player_id, zone, action):
+            return action, None, "coffee"
 
     # 2. Technical Debt is taxing every roll in the party.
-    if state["party"]["tech_debt"] >= DEBT_THRESHOLD:
+    if options and state["party"]["tech_debt"] >= DEBT_THRESHOLD:
         menders = [a for a in options if _cuts_debt(a)]
         if menders:
             return menders[0].id, None, "debt"
@@ -211,6 +250,13 @@ def decide(state: dict, player_id: str,
         scouts = [a for a in options if _reveals(a)]
         if scouts:
             return scouts[0].id, None, "reveal"
+        # Nothing in hand can scope it; the lab bench can.
+        zone, action = PLACE_BRANCHES["lab"]
+        if _place_legal(state, player_id, zone, action):
+            return action, None, "lab"
+
+    if not options:
+        return None, None, "pass"       # nothing affordable; pass the turn
 
     # 4. A party buff nobody is running yet.
     for ability in options:
@@ -227,7 +273,10 @@ def decide(state: dict, player_id: str,
 
 def choose_action(state: dict, player_id: str,
                   catalog: Catalog) -> "tuple[str, str | None] | None":
-    """`decide` without the reason: (ability_id, target_id), or None to pass."""
+    """`decide` without the reason: (ability_id, target_id), or None to pass.
+
+    For a place branch the id is the place action ("bench_test",
+    "coffee_break"); PLACE_BRANCHES says where it is done."""
     ability_id, target_id, _ = decide(state, player_id, catalog)
     return None if ability_id is None else (ability_id, target_id)
 
@@ -261,6 +310,16 @@ BOT_LINES = {
         "Straight at it, then.",
         "Nothing clever left. Applying pressure.",
         "This is the largest thing I can do to it.",
+    ],
+    "lab": [
+        "Taking it to the bench. I want to see it fail on purpose.",
+        "Heading to the lab to put a probe on it.",
+        "Nothing in my kit reads this. The lab bench will.",
+    ],
+    "coffee": [
+        "I'm running on fumes. Coffee first.",
+        "Five minutes in the break room or I'm no use to anyone.",
+        "Refilling before I fall over. Back shortly.",
     ],
     "pass": [
         "Nothing I can afford this turn. Passing.",
@@ -433,6 +492,15 @@ class BotRunner:
         except Exception:
             log.info("bot %s could not speak", player_id, exc_info=True)
 
+    def _walk(self, room_id: str, player_id: str, zone: str) -> None:
+        """Move in the office so the table sees where the bot went. Best
+        effort, like _say: a bot that cannot walk still plays."""
+        try:
+            self.service.office_move(room_id, player_id, zone)
+        except Exception:
+            log.info("bot %s could not walk to %s", player_id, zone,
+                     exc_info=True)
+
     def _play(self, room_id: str, player_id: str, state: dict) -> None:
         ability_id, target_id, branch = None, None, "pass"
         if state["characters"][player_id]["stamina"] > 0:
@@ -443,6 +511,18 @@ class BotRunner:
         if ability_id is None:
             self.service.end_turn(room_id, player_id)
             return
+        if branch in PLACE_BRANCHES:
+            zone, action = PLACE_BRANCHES[branch]
+            self._walk(room_id, player_id, zone)
+            try:
+                self.service.office_act(room_id, player_id, action)
+            except Exception:
+                log.info("bot %s could not use %s; passing", player_id, action,
+                         exc_info=True)
+                self.service.end_turn(room_id, player_id)
+            return
+        # Abilities are worked from the bot's own desk.
+        self._walk(room_id, player_id, places.desk_zone(player_id))
         try:
             self.service.act(room_id, player_id, ability_id, target_id)
         except Exception:

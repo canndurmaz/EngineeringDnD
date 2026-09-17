@@ -165,7 +165,8 @@ def test_list_room_ids_ignores_directories_without_a_database(tmp_path, room):
 def _legacy_schema() -> str:
     """schema.sql as it read before characters gained its migrated columns.
 
-    Every column added after the first release (appearance, then is_bot) is
+    Every column added after the first release (appearance, then is_bot, then
+    the office's office_zone, desk and coffee_used) is
     stripped back out here, so these tests keep describing a database written
     by an earlier build rather than the one the current file happens to create.
     """
@@ -173,7 +174,10 @@ def _legacy_schema() -> str:
     return schema.replace(
         "    used         TEXT NOT NULL,\n"
         "    appearance   TEXT NOT NULL DEFAULT '{}',\n"
-        "    is_bot       INTEGER NOT NULL DEFAULT 0\n",
+        "    is_bot       INTEGER NOT NULL DEFAULT 0,\n"
+        "    office_zone  TEXT NOT NULL DEFAULT 'floor',\n"
+        "    desk         TEXT NOT NULL DEFAULT '{}',\n"
+        "    coffee_used  INTEGER NOT NULL DEFAULT 0\n",
         "    used         TEXT NOT NULL\n")
 
 

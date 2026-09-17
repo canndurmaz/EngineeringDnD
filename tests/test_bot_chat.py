@@ -127,11 +127,14 @@ def test_a_bot_that_passes_says_so(svc):
     room_id = _room_with_two_bots(svc)
     state = svc.snapshot(room_id)
     player_id = state["turn"]["order"][state["turn"]["turn_index"]]
-    # No focus, so nothing is affordable and the policy has to pass.
+    # No focus, so nothing is affordable and the policy has to pass. The
+    # weakness is already known, so the lab bench has nothing to offer either.
     with svc._lock(room_id):
         room = svc._room(room_id)
         frozen = room.load_state()
         frozen["characters"][player_id]["focus"] = 0
+        for hazard in frozen["hazards"]:
+            hazard["revealed"] = sorted(set(hazard["revealed"]) | {"weakness"})
         room.save_state(frozen)
     BotRunner(svc, svc.catalog, delay=0.0).run_once()
     [message] = svc.chat_since(room_id, 0)

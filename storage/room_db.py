@@ -107,6 +107,21 @@ class RoomDB:
             conn.execute("ALTER TABLE characters"
                          " ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0")
             conn.commit()
+        # The office: where each engineer stands, how their desk looks, and
+        # how many coffee breaks they have had this phase. Same idempotent
+        # ALTER as appearance and is_bot, for the same reason.
+        if "office_zone" not in columns:
+            conn.execute("ALTER TABLE characters"
+                         " ADD COLUMN office_zone TEXT NOT NULL DEFAULT 'floor'")
+            conn.commit()
+        if "desk" not in columns:
+            conn.execute("ALTER TABLE characters"
+                         " ADD COLUMN desk TEXT NOT NULL DEFAULT '{}'")
+            conn.commit()
+        if "coffee_used" not in columns:
+            conn.execute("ALTER TABLE characters"
+                         " ADD COLUMN coffee_used INTEGER NOT NULL DEFAULT 0")
+            conn.commit()
         hazard_columns = {row[1] for row in conn.execute(
             "PRAGMA table_info(hazards)")}
         if hazard_columns and "subsystem" not in hazard_columns:
@@ -193,6 +208,16 @@ class RoomDB:
             # a state that went in without one comes back out the same shape.
             if row["is_bot"]:
                 characters[row["player_id"]]["is_bot"] = True
+            # The office columns follow the same rule: a default value is left
+            # off, so a state that never walked anywhere round-trips unchanged.
+            # Readers use engine.places.zone_of and normalise_desk for defaults.
+            if row["office_zone"] and row["office_zone"] != "floor":
+                characters[row["player_id"]]["office_zone"] = row["office_zone"]
+            desk = json.loads(row["desk"] or "{}")
+            if desk:
+                characters[row["player_id"]]["desk"] = desk
+            if row["coffee_used"]:
+                characters[row["player_id"]]["coffee_used"] = row["coffee_used"]
 
         hazards = []
         for row in conn.execute(
@@ -259,13 +284,17 @@ class RoomDB:
                 conn.execute(
                     "INSERT INTO characters (player_id, name, class_id, stats, level,"
                     " stamina, max_stamina, focus, max_focus, unlocked, used,"
-                    " appearance, is_bot) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    " appearance, is_bot, office_zone, desk, coffee_used)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (char["player_id"], char["name"], char["class_id"],
                      json.dumps(char["stats"]), char["level"], char["stamina"],
                      char["max_stamina"], char["focus"], char["max_focus"],
                      json.dumps(char["unlocked"]), json.dumps(char["used"]),
                      json.dumps(char.get("appearance") or {}),
-                     int(bool(char.get("is_bot", False)))))
+                     int(bool(char.get("is_bot", False))),
+                     char.get("office_zone") or "floor",
+                     json.dumps(char.get("desk") or {}),
+                     int(char.get("coffee_used") or 0)))
 
             conn.execute("DELETE FROM hazards")
             for hazard in state["hazards"]:
