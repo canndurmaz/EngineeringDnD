@@ -311,6 +311,8 @@ summary() {
     fi
     printf '\n  Internet is needed only during setup. Once this has finished, everything —\n'
     printf '  model inference, avatars, SQLite, the LAN server — runs entirely offline.\n'
+    printf '\n  Optional admin pane: start the server with %sCP_ADMIN_PASSWORD=...%s set,\n' "$C_BOLD" "$C_RESET"
+    printf '  then open /admin to list, create and delete rooms. Unset, /admin does not exist.\n'
     printf '\n  Everything in this project runs through the venv interpreter —\n'
     printf '  use %s./venv/bin/python ...%s, or activate it first with %s. venv/bin/activate%s.\n\n' \
         "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"

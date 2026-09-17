@@ -87,6 +87,35 @@ linear in the tokens emitted, so halving it roughly halves the wait.
 The room-opening brief is generated once, in the background, and keeps its own
 longer budget regardless of `CP_MAX_TOKENS`.
 
+## Optional: the admin pane
+
+Set `CP_ADMIN_PASSWORD` when starting the server to turn on `/admin`:
+
+```bash
+CP_ADMIN_PASSWORD='something long' ./venv/bin/python app.py
+```
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `CP_ADMIN_PASSWORD` | unset | Enables `/admin` and `/api/admin/*`. Unset or empty, they all return 404. |
+
+Log in at `http://<host>:5000/admin` to see every room (code, name, system,
+status, humans and bots seated, last active, size on disk), open one, create one,
+or delete one. The login is kept in the same signed session cookie as the seats;
+changing the password does not log out an existing admin session, so rotate
+`instance/secret.key` too if you need that.
+
+Deleting asks you to type the room code. It never unlinks anything: the room's
+folder is moved to `rooms/_trash/<code>-<UTC timestamp>/`, and anyone still at
+that table sees "This room was closed by an admin." To restore a room, stop the
+server, move the folder back to `rooms/<code>/`, and re-list it in the lobby with
+`./venv/bin/python -c "from storage.index_db import IndexDB; IndexDB('rooms').rebuild()"`
+(the index is only a cache over the room folders; `_trash` is skipped). Empty
+`rooms/_trash/` by hand when you are sure.
+
+The pane is plain HTTP like the rest of the app: anyone on the LAN who can sniff
+traffic can read the password. Use it on a network you trust.
+
 ## How it plays
 
 - Six stats: RIGOR, INTUITION, CRAFT, SYSTEMS, COMMS, GRIT.
