@@ -1,9 +1,13 @@
+import json
+
 import pytest
 from engine.classes import load_catalog
 from engine.dice import Dice
-from engine.effects import add_condition, condition_total
+from engine.effects import (active_conditions, add_condition,
+                            condition_total)
 from engine.rules import (ActionResult, RuleError, advance_turn, effective_dc,
-                          hazard_attack, resolve_action, stat_mod, validate_action)
+                          hazard_attack, hazard_attack_count, resolve_action,
+                          stat_mod, validate_action)
 from tests.engine.test_effects import make_state
 
 
@@ -293,3 +297,125 @@ def test_focus_regenerates_one_per_turn(cat):
     s["characters"]["p2"]["focus"] = 0
     advance_turn(s)
     assert s["characters"]["p2"]["focus"] == 1
+
+
+# --- the hazard acts in proportion to the living party ---------------------
+
+def _party_of(size):
+    """A state whose party has `size` identical, living characters."""
+    s = make_state()
+    template = s["characters"]["p1"]
+    s["characters"] = {}
+    s["turn"]["order"] = []
+    for n in range(size):
+        pid = f"q{n}"
+        char = json.loads(json.dumps(template))
+        char["player_id"], char["name"] = pid, f"Q{n}"
+        char["stamina"] = char["max_stamina"] = 40   # deep enough to survive a round
+        s["characters"][pid] = char
+        s["turn"]["order"].append(pid)
+    return s
+
+
+def test_attack_count_scales_with_party_size(cat):
+    assert hazard_attack_count(_party_of(1)) == 1
+    assert hazard_attack_count(_party_of(4)) == 1
+    assert hazard_attack_count(_party_of(5)) == 2
+    assert hazard_attack_count(_party_of(8)) == 2
+    assert hazard_attack_count(_party_of(9)) == 3
+
+
+def test_a_solo_party_still_faces_one_attack(cat):
+    """Never zero: a lone player must still be under pressure."""
+    s = _party_of(1)
+    assert hazard_attack_count(s) == 1
+    before = s["characters"]["q0"]["stamina"]
+    hazard_attack(s, Dice(3))
+    assert s["characters"]["q0"]["stamina"] < before
+
+
+def test_attack_count_follows_living_characters_not_seats(cat):
+    """Burn half the party out and the incoming volley shrinks with it --
+    otherwise a losing position could never be recovered."""
+    s = _party_of(8)
+    assert hazard_attack_count(s) == 2
+    s["characters"]["q0"]["stamina"] = 0
+    s["characters"]["q1"]["stamina"] = 0
+    s["characters"]["q2"]["stamina"] = 0
+    s["characters"]["q3"]["stamina"] = 0
+    assert hazard_attack_count(s) == 1
+
+
+def test_a_multi_attack_round_hits_more_than_once(cat):
+    s = _party_of(8)
+    result = hazard_attack(s, Dice(3))
+    assert result["count"] == 2 and len(result["attacks"]) == 2
+    assert all(a["attack"] == "stress" for a in result["attacks"])
+
+
+def test_multiple_stress_attacks_spread_across_the_party(cat):
+    s = _party_of(8)
+    result = hazard_attack(s, Dice(3))
+    hit = {a["player_id"] for a in result["attacks"]}
+    assert len(hit) == 2, "a round's attacks must not pile onto one character"
+
+
+def test_a_stunned_hazard_skips_every_attack_of_the_round(cat):
+    s = _party_of(8)
+    assert hazard_attack_count(s) == 2
+    add_condition(s, "stunned", "hazard", 1, 1)
+    before = sum(c["stamina"] for c in s["characters"].values())
+    result = hazard_attack(s, Dice(3))
+    assert result["blocked"] == "stunned"
+    assert sum(c["stamina"] for c in s["characters"].values()) == before
+
+
+def test_a_shield_absorbs_across_attacks_until_it_is_spent(cat):
+    s = _party_of(8)
+    add_condition(s, "shield", "party", 3, 2)
+    before = sum(c["stamina"] for c in s["characters"].values())
+    result = hazard_attack(s, Dice(3))
+    absorbed = sum(a["absorbed"] for a in result["attacks"])
+    landed = sum(a["amount"] for a in result["attacks"])
+    assert absorbed == 3, "the pool is shared across the whole round's attacks"
+    assert not active_conditions(s, "shield"), "a spent shield is gone"
+    assert sum(c["stamina"] for c in s["characters"].values()) == before - landed
+    assert landed > 0, "a 3-point shield cannot soak a whole multi-attack round"
+
+
+def test_resist_burn_blocks_every_burn_attack_in_the_round(cat):
+    s = _party_of(8)
+    s["hazards"][0]["attack_type"] = "burn_schedule"
+    add_condition(s, "resist_burn", "party", 1, 2)
+    result = hazard_attack(s, Dice(3))
+    assert s["party"]["schedule"] == 100
+    assert all(a["blocked"] == "resist_burn" for a in result["attacks"])
+
+
+def test_no_debt_blocks_every_debt_attack_in_the_round(cat):
+    s = _party_of(8)
+    s["hazards"][0]["attack_type"] = "debt"
+    add_condition(s, "no_debt", "hazard", 1, 2)
+    result = hazard_attack(s, Dice(3))
+    assert s["party"]["tech_debt"] == 0
+    assert all(a["blocked"] == "no_debt" for a in result["attacks"])
+
+
+def test_burn_attacks_repeat_their_own_type_rather_than_rolling_a_new_one(cat):
+    s = _party_of(8)
+    s["hazards"][0]["attack_type"] = "burn_budget"
+    result = hazard_attack(s, Dice(3))
+    assert [a["attack"] for a in result["attacks"]] == ["burn_budget"] * 2
+    assert s["party"]["budget"] == 100 - sum(a["amount"] for a in result["attacks"])
+
+
+def test_a_fumble_buys_one_extra_attack_not_a_whole_round(cat):
+    """A fumble is one more attack. Scaling it too would punish a big party
+    twice over for the same mistake."""
+    s = _party_of(8)
+    s["characters"]["q0"]["unlocked"].append("descope")
+    s["turn"]["turn_index"] = 0
+    result = resolve_action(s, "q0", cat.abilities["descope"], FixedDice([1]))
+    attacks = [c for c in result.changes if c["kind"] == "hazard_attack"]
+    assert len(attacks) == 1 and "attacks" not in attacks[0]
+    assert attacks[0]["player_id"] == "q0"

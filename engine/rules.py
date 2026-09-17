@@ -167,7 +167,7 @@ def resolve_action(state, actor_id: str, ability: Ability, dice: Dice,
         state["conditions"].remove(c)
 
     if outcome == "fumble":
-        changes.append(hazard_attack(state, dice, forced_target=actor_id))
+        changes.append(hazard_attack(state, dice, forced_target=actor_id, count=1))
 
     state["last_ability_id"] = ability.id
     return ActionResult(natural=natural, stat_used=stat_used, stat_mod=mod,
@@ -175,46 +175,71 @@ def resolve_action(state, actor_id: str, ability: Ability, dice: Dice,
                         changes=changes, rerolled=rerolled)
 
 
-def hazard_attack(state, dice: Dice, forced_target: "str | None" = None) -> dict:
-    """The hazard's response. Attack type is fixed per hazard, never random."""
-    hazard = _hazard(state)
-    if hazard is None or hazard.get("defeated"):
-        return {"kind": "hazard_attack", "blocked": "no_hazard"}
-    if condition_total(state, "stunned") > 0:
-        for c in list(active_conditions(state, "stunned")):
-            state["conditions"].remove(c)
-        return {"kind": "hazard_attack", "blocked": "stunned"}
+# One hazard attack per this many living characters, rounded up. The hazard
+# used to act exactly once per round no matter how many people were at the
+# table, while the party's output scaled with headcount -- so every extra seat
+# made the campaign easier. Dividing living heads by this constant keeps the
+# pressure each player feels roughly flat. Tuning difficulty across party sizes
+# is a one-line change here.
+LIVING_PER_HAZARD_ATTACK = 4
 
-    phase = state["room"]["phase_index"]
+
+def hazard_attack_count(state) -> int:
+    """How many times the hazard acts this round.
+
+    Counts living characters, not seats: a party that has already lost half its
+    people takes fewer attacks, so a losing position stays recoverable. Never
+    zero while anyone is standing -- a lone player still faces pressure.
+    """
+    living = sum(1 for c in state["characters"].values() if c["stamina"] > 0)
+    if living <= 0:
+        return 0
+    return max(1, -(-living // LIVING_PER_HAZARD_ATTACK))
+
+
+def _stress_attack(state, dice: Dice, phase: int, forced_target: "str | None",
+                   struck: set) -> dict:
+    """One stress attack, spread away from whoever was already hit this round.
+
+    Spreading rather than focusing: several attacks stacked on one character
+    would take them from full to Burned Out inside a single round, with no turn
+    in between to heal or shield. Spread damage is damage the party can answer.
+    """
+    living = [p for p, c in state["characters"].items() if c["stamina"] > 0]
+    if not living:
+        return {"kind": "hazard_attack", "blocked": "party_down"}
+    if forced_target in living:
+        target = forced_target
+    else:
+        fresh = [p for p in living if p not in struck]
+        target = dice.choice(sorted(fresh or living))
+    struck.add(target)
+    amount = dice.roll(f"1d6+{phase + 1}", {})
+    shields = active_conditions(state, "shield", target)
+    absorbed = 0
+    for shield in shields:
+        take = min(shield["value"], amount - absorbed)
+        shield["value"] -= take
+        absorbed += take
+        if shield["value"] <= 0:
+            state["conditions"].remove(shield)
+        if absorbed >= amount:
+            break
+    net = amount - absorbed
+    char = state["characters"][target]
+    char["stamina"] = max(0, char["stamina"] - net)
+    return {"kind": "hazard_attack", "attack": "stress", "player_id": target,
+            "amount": net, "absorbed": absorbed, "stamina": char["stamina"]}
+
+
+def _single_attack(state, dice: Dice, hazard: dict, phase: int,
+                   forced_target: "str | None", struck: set) -> dict:
+    """One of the hazard's attacks. The type is fixed per hazard, never random,
+    so repeating it means repeating the same kind of harm."""
     attack = hazard["attack_type"]
-    # The party is about to watch this attack land (and the payload names it, which
-    # is diegetic -- you see what hit you). Record that as a reveal so the UI stops
-    # claiming "next: unknown" for something everyone just witnessed; otherwise the
-    # reveal state would lie about what the party knows.
-    hazard["revealed"] = sorted(set(hazard.get("revealed", [])) | {"next_attack"})
 
     if attack == "stress":
-        living = [p for p, c in state["characters"].items() if c["stamina"] > 0]
-        target = forced_target if forced_target in living else (
-            dice.choice(sorted(living)) if living else None)
-        if target is None:
-            return {"kind": "hazard_attack", "blocked": "party_down"}
-        amount = dice.roll(f"1d6+{phase + 1}", {})
-        shields = active_conditions(state, "shield", target)
-        absorbed = 0
-        for shield in shields:
-            take = min(shield["value"], amount - absorbed)
-            shield["value"] -= take
-            absorbed += take
-            if shield["value"] <= 0:
-                state["conditions"].remove(shield)
-            if absorbed >= amount:
-                break
-        net = amount - absorbed
-        char = state["characters"][target]
-        char["stamina"] = max(0, char["stamina"] - net)
-        return {"kind": "hazard_attack", "attack": "stress", "player_id": target,
-                "amount": net, "absorbed": absorbed, "stamina": char["stamina"]}
+        return _stress_attack(state, dice, phase, forced_target, struck)
 
     if attack in ("burn_budget", "burn_schedule"):
         if condition_total(state, "resist_burn") > 0:
@@ -234,6 +259,46 @@ def hazard_attack(state, dice: Dice, forced_target: "str | None" = None) -> dict
                 "value": state["party"]["tech_debt"]}
 
     raise RuleError(f"unknown hazard attack type: {attack!r}")
+
+
+def hazard_attack(state, dice: Dice, forced_target: "str | None" = None,
+                  count: "int | None" = None) -> dict:
+    """The hazard's response for the round, scaled to the living party.
+
+    Attack type is fixed per hazard, never random. `count` overrides the scaling
+    -- a fumble passes 1, because a fumble buys one extra attack, not another
+    whole round of them.
+    """
+    hazard = _hazard(state)
+    if hazard is None or hazard.get("defeated"):
+        return {"kind": "hazard_attack", "blocked": "no_hazard"}
+    if condition_total(state, "stunned") > 0:
+        # The stun eats the hazard's entire action for the round, however many
+        # attacks it was owed -- not just the first one.
+        for c in list(active_conditions(state, "stunned")):
+            state["conditions"].remove(c)
+        return {"kind": "hazard_attack", "blocked": "stunned"}
+
+    phase = state["room"]["phase_index"]
+    # The party is about to watch this attack land (and the payload names it, which
+    # is diegetic -- you see what hit you). Record that as a reveal so the UI stops
+    # claiming "next: unknown" for something everyone just witnessed; otherwise the
+    # reveal state would lie about what the party knows.
+    hazard["revealed"] = sorted(set(hazard.get("revealed", [])) | {"next_attack"})
+
+    total = hazard_attack_count(state) if count is None else count
+    struck: set = set()
+    attacks = [_single_attack(state, dice, hazard, phase,
+                              forced_target if i == 0 else None, struck)
+               for i in range(total)]
+    if not attacks:
+        return {"kind": "hazard_attack", "blocked": "party_down"}
+    if len(attacks) == 1:
+        return attacks[0]
+    # More than one attack lands as one round event, so the payload carries the
+    # whole volley rather than pretending the first hit was all of it.
+    return {"kind": "hazard_attack", "attack": hazard["attack_type"],
+            "count": len(attacks), "attacks": attacks}
 
 
 def end_of_round(state) -> "dict | None":
