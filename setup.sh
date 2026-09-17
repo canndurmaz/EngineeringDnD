@@ -17,6 +17,14 @@ PY="$VENV/bin/python"
 MODEL_DIR="$REPO_ROOT/models"
 MIN_MODEL_BYTES=$((600 * 1024 * 1024))   # a valid Q4_K_M 1B is ~0.8 GB
 
+# The Office tab's 2D engine. Served from static/vendor so the page never
+# reaches a CDN at runtime; fetched once here if the copy is missing.
+PHASER_VERSION="3.90.0"
+PHASER_URL="https://cdn.jsdelivr.net/npm/phaser@${PHASER_VERSION}/dist/phaser.min.js"
+PHASER_FILE="$REPO_ROOT/static/vendor/phaser.min.js"
+PHASER_SHA256="e92ddef111ba42e92d316979c732311757093688ea1810591cb7aa2858eba7a7"
+MIN_PHASER_BYTES=$((900 * 1024))          # 3.90.0 minified is ~1.17 MB
+
 # ---------------------------------------------------------------- output ----
 
 if [ -t 1 ]; then
@@ -239,6 +247,45 @@ download_model() {
     ok "downloaded"
 }
 
+# ---------------------------------------------------------------- phaser ----
+
+phaser_ok() {
+    [ -f "$1" ] || return 1
+    local size
+    size="$(wc -c < "$1" | tr -d ' ')"
+    [ "$size" -ge "$MIN_PHASER_BYTES" ] || return 1
+    if command -v sha256sum >/dev/null 2>&1; then
+        [ "$(sha256sum "$1" | awk '{print $1}')" = "$PHASER_SHA256" ] || return 1
+    fi
+    return 0
+}
+
+ensure_phaser() {
+    step "Phaser $PHASER_VERSION (the Office tab's 2D engine, into static/vendor/)"
+    if phaser_ok "$PHASER_FILE"; then
+        ok "already present: static/vendor/phaser.min.js"
+        return
+    fi
+    info "downloading ~1.2 MB -- besides the model, this is the only other thing that needs internet"
+    mkdir -p "$(dirname "$PHASER_FILE")"
+    local tmp="$PHASER_FILE.part"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL -o "$tmp" "$PHASER_URL" || { rm -f "$tmp"; die "could not download $PHASER_URL"; }
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q -O "$tmp" "$PHASER_URL" || { rm -f "$tmp"; die "could not download $PHASER_URL"; }
+    else
+        "$PY" -c 'import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])' \
+            "$PHASER_URL" "$tmp" || { rm -f "$tmp"; die "could not download $PHASER_URL"; }
+    fi
+    if ! phaser_ok "$tmp"; then
+        rm -f "$tmp"
+        die "the downloaded phaser.min.js failed its size/checksum check (expected $PHASER_VERSION).
+    The game still runs; only the Office tab needs it."
+    fi
+    mv "$tmp" "$PHASER_FILE"
+    ok "downloaded and verified (sha256 + size)"
+}
+
 # ----------------------------------------------------------- directories ----
 
 ensure_dirs() {
@@ -309,8 +356,10 @@ summary() {
         printf '            The game is fully playable this way; the UI shows a "DM: template" badge.\n'
         printf '            To upgrade: %s./setup.sh --llm-only%s (compiles for 10-20 minutes).\n' "$C_BOLD" "$C_RESET"
     fi
-    printf '\n  Internet is needed only during setup. Once this has finished, everything —\n'
-    printf '  model inference, avatars, SQLite, the LAN server — runs entirely offline.\n'
+    printf '\n  Internet is needed only during setup, for two downloads: the narrator model,\n'
+    printf '  and Phaser (static/vendor/phaser.min.js) -- the only other thing besides the\n'
+    printf '  model that needs internet. Once this has finished, everything — model\n'
+    printf '  inference, avatars, the office, SQLite, the LAN server — runs entirely offline.\n'
     printf '\n  Everything in this project runs through the venv interpreter —\n'
     printf '  use %s./venv/bin/python ...%s, or activate it first with %s. venv/bin/activate%s.\n\n' \
         "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
@@ -341,6 +390,7 @@ else
     ensure_venv
     install_core
     ensure_dirs
+    ensure_phaser
     if [ "$WITH_LLM" -eq 1 ]; then
         install_llm
         download_model
