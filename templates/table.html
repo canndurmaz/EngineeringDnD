@@ -4,6 +4,16 @@
 <span class="num" id="phase-label"></span>
 {% endblock %}
 {% block content %}
+<!-- Two views of one table: the board (panels) and the office (a walkable
+     floor). Both read the same /state; only one is shown at a time. -->
+<div class="view-tabs" role="tablist" aria-label="Table view">
+  <button type="button" role="tab" id="tab-board" class="view-tab"
+          aria-controls="view-board" aria-selected="true">Board</button>
+  <button type="button" role="tab" id="tab-office" class="view-tab"
+          aria-controls="view-office" aria-selected="false" tabindex="-1">Office</button>
+</div>
+
+<div id="view-board" role="tabpanel" aria-labelledby="tab-board">
 <div class="table-grid">
 
   <section>
@@ -78,8 +88,40 @@
   </section>
 
 </div>
+</div>
+
+<div id="view-office" role="tabpanel" aria-labelledby="tab-office" hidden>
+  <div class="office-grid">
+    <div class="panel office-stage">
+      <h2>Office <span class="roll" id="office-where"></span></h2>
+      <!-- The Phaser canvas mounts here. It takes the keyboard only while it
+           has focus, so typing anywhere else never walks the avatar. -->
+      <div id="office-canvas" class="office-canvas" tabindex="0"
+           aria-label="Office floor. Arrow keys or WASD to walk, E to use the place you are standing in. Click or tap to walk there."></div>
+      <p class="roll office-help">Arrow keys / WASD to walk · click or tap to walk there · E to use a place</p>
+    </div>
+    <aside class="office-side">
+      <div class="panel" id="office-place">
+        <h2>Where you are</h2>
+        <p id="office-prompt" class="office-prompt" aria-live="polite">Loading the office…</p>
+        <button type="button" id="office-use" class="office-use" hidden>Use</button>
+        <p id="office-error" class="debt office-error" role="alert"></p>
+      </div>
+      <div class="panel" id="desk-panel" hidden style="margin-top:16px">
+        <h2>Your desk</h2>
+        <form id="desk-form" class="desk-form" autocomplete="off"></form>
+        <p id="desk-note" class="roll desk-note" role="status"></p>
+      </div>
+      <!-- Table talk is moved in here while the office is open, so the
+           whiteboard has something to focus. -->
+      <div id="office-chat-slot" class="office-chat-slot" style="margin-top:16px"></div>
+    </aside>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>window.ROOM_ID = {{ room_id | tojson }};</script>
+<script src="{{ url_for('static', filename='vendor/phaser.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/office.js') }}"></script>
 <script src="{{ url_for('static', filename='js/game.js') }}"></script>
 {% endblock %}
