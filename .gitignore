@@ -6,3 +6,4 @@ models/
 rooms/
 instance/
 venv/
+.claude/worktrees/
