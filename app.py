@@ -16,6 +16,7 @@ from flask import (Flask, Response, abort, jsonify, render_template, request,
 import appearance as appearance_lib
 from bots import BotRunner
 from broker import EventBroker
+from engine import places
 from engine.classes import STATS, load_catalog
 from engine.phases import PHASES, load_archetypes, load_hazard_templates
 from engine.rules import RuleError
@@ -351,12 +352,23 @@ def create_app(config: "dict | None" = None) -> Flask:
         order = state["turn"]["order"]
         active = order[state["turn"]["turn_index"]] if order else None
         bots = sum(1 for c in state["characters"].values() if c.get("is_bot"))
+        # Storage leaves office defaults off; the client always gets them.
+        characters = {
+            pid: {**c, "office_zone": places.zone_of(c),
+                  "desk": places.normalise_desk(c.get("desk"))}
+            for pid, c in state["characters"].items()}
+        if you is not None:
+            you["office_zone"] = characters[you["player_id"]]["office_zone"]
+            you["desk"] = characters[you["player_id"]]["desk"]
+            you["coffee_used"] = int(you.get("coffee_used") or 0)
+            you["office_action"] = places.action_here(state, you["player_id"])
         return jsonify({
             "party_size": {"seated": len(state["characters"]), "bots": bots,
                            "humans": len(state["characters"]) - bots,
                            "max": MAX_SEATS},
             "room": state["room"], "party": state["party"],
-            "characters": state["characters"], "hazard": _public_hazard(state),
+            "characters": characters, "hazard": _public_hazard(state),
+            "office": app.service.office(state),
             "map": _system_map(state, app.service.archetypes.get(
                 state["room"]["archetype"], {}).get("subsystems") or []),
             "active_hazard_id": state["active_hazard_id"],
@@ -396,6 +408,45 @@ def create_app(config: "dict | None" = None) -> Flask:
             return jsonify({"error": "you are not seated in this room"}), 403
         outcome = app.service.end_turn(room_id, found["player_id"])
         return jsonify({"result": {"passed": True}, "events": outcome["events"]})
+
+    # --- the office --------------------------------------------------------
+
+    @app.post("/api/rooms/<room_id>/office/move")
+    def api_office_move(room_id):
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        zone = _body().get("zone")
+        if not isinstance(zone, str):
+            raise ServiceError("no such place in the office")
+        return jsonify(app.service.office_move(room_id, found["player_id"],
+                                               zone.strip()))
+
+    @app.post("/api/rooms/<room_id>/office/act")
+    def api_office_act(room_id):
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        body = _body()
+        action = _text(body.get("action"))
+        if not action:
+            raise ServiceError("no place action chosen")
+        target = body.get("target_id")
+        result = app.service.office_act(
+            room_id, found["player_id"], action,
+            _text(target) if isinstance(target, str) else None)
+        events = result.pop("events", [])
+        return jsonify({"result": result, "events": events})
+
+    @app.post("/api/rooms/<room_id>/office/desk")
+    def api_office_desk(room_id):
+        found = require_seat(room_id)
+        if not found:
+            return jsonify({"error": "you are not seated in this room"}), 403
+        body = _body()
+        # Either {"desk": {...}} or the fields at the top level.
+        desk = body.get("desk") if isinstance(body.get("desk"), dict) else body
+        return jsonify(app.service.set_desk(room_id, found["player_id"], desk))
 
     # --- party chat --------------------------------------------------------
 
