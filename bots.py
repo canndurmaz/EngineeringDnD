@@ -297,6 +297,13 @@ def _default_delay() -> float:
         return 2.0
 
 
+def _gone() -> type:
+    """ServiceError, imported late: service.py is the orchestration layer and
+    this module must stay importable without it."""
+    from service import ServiceError
+    return ServiceError
+
+
 class BotRunner:
     """Polls active rooms and plays any seat that belongs to a bot.
 
@@ -351,6 +358,11 @@ class BotRunner:
             room_id = row.get("room_id")
             try:
                 taken += self._tick(room_id, now)
+            except _gone():
+                # The room was deleted between the listing and the tick. It is
+                # already out of the index, so the next sweep will not see it.
+                self._waiting.pop(room_id, None)
+                log.debug("bot runner: room %s is gone; skipping", room_id)
             except Exception:           # one bad room must not kill the thread
                 log.exception("bot tick failed for room %s", room_id)
         return taken
@@ -403,6 +415,8 @@ class BotRunner:
             return False
         try:
             return bool(gate(room_id).get("waiting"))
+        except _gone():
+            raise
         except Exception:
             log.exception("bot runner could not read the DM gate for %s", room_id)
             return False

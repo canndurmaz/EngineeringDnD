@@ -39,8 +39,11 @@ class RoomDB:
         base = Path(root)
         if not base.exists():
             return []
+        # "_trash" (and any other _-prefixed folder) holds deleted rooms; a
+        # directory name starting with "_" is never a room code.
         return [p.name for p in base.iterdir()
-                if p.is_dir() and (p / "game.db").exists()]
+                if p.is_dir() and not p.name.startswith(("_", "."))
+                and (p / "game.db").exists()]
 
     @classmethod
     def create(cls, root: str, room_id: str, name: str, archetype: str,

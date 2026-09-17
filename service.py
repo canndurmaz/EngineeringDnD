@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
+import shutil
 import threading
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import appearance as appearance_lib
 from engine.character import new_character_detailed
@@ -47,6 +51,12 @@ def dm_wait_seconds() -> float:
     return max(0.0, value)
 
 
+#: Where deleted rooms go. Never listed, never indexed, never deleted by the app.
+TRASH_DIR = "_trash"
+
+_ROOM_CODE = re.compile(r"[A-Za-z0-9]{1,32}")
+
+
 class ServiceError(Exception):
     """A request that is wrong about the world: unknown room, taken class, game over."""
 
@@ -81,6 +91,11 @@ class GameService:
             return self._locks[room_id]
 
     def _room(self, room_id: str) -> RoomDB:
+        cached = self._rooms.get(room_id)
+        if cached is not None and not cached.path.exists():
+            # Deleted by an admin after a lock-free read re-cached it.
+            self._rooms.pop(room_id, None)
+            raise ServiceError(f"no such room: {room_id}")
         if room_id not in self._rooms:
             try:
                 self._rooms[room_id] = RoomDB.open(self.root, room_id)
@@ -134,6 +149,65 @@ class GameService:
 
     def list_rooms(self) -> list:
         return self.index.list_rooms()
+
+    # --- admin -------------------------------------------------------------
+
+    def room_size(self, room_id: str) -> int:
+        """Bytes on disk for one room's directory (database, WAL, anything else)."""
+        base = Path(self.root) / room_id
+        total = 0
+        for path in base.rglob("*"):
+            try:
+                if path.is_file():
+                    total += path.stat().st_size
+            except OSError:
+                pass
+        return total
+
+    def delete_room(self, room_id: str) -> str:
+        """Take a room out of play and move its directory into rooms/_trash.
+
+        Nothing is unlinked: the folder lands in _trash/<code>-<UTC stamp>/ so a
+        mistaken delete is a `mv` away from being undone. Returns that path.
+        """
+        room_id = str(room_id or "")
+        # Only a plain room code may name a directory to move. RoomDB.exists
+        # alone would accept "../x" or "_trash".
+        if not _ROOM_CODE.fullmatch(room_id) or not RoomDB.exists(self.root, room_id):
+            raise ServiceError(f"no such room: {room_id}")
+        with self._lock(room_id):
+            if not RoomDB.exists(self.root, room_id):   # lost a race to another delete
+                raise ServiceError(f"no such room: {room_id}")
+            if self.queue is not None and hasattr(self.queue, "drop_room"):
+                self.queue.drop_room(room_id)
+            room = self._rooms.pop(room_id, None)
+            latest = 0
+            if room is not None:
+                try:
+                    latest = room.latest_seq()
+                    # Fold the WAL back in so the trashed game.db stands alone.
+                    room.connect().execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                except Exception:
+                    pass
+                room.close()
+            self._level_choices.pop(room_id, None)
+            self._pending_phase.pop(room_id, None)
+            self._dm_gate.pop(room_id, None)
+            self.index.remove(room_id)
+            if self.broker is not None:
+                self.broker.publish(room_id, {
+                    "seq": latest, "kind": "room_closed",
+                    "message": "This room was closed by an admin."})
+            trash = Path(self.root) / TRASH_DIR
+            trash.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            target = trash / f"{room_id}-{stamp}"
+            shutil.move(str(Path(self.root) / room_id), str(target))
+            self._rooms.pop(room_id, None)   # a lock-free read may have re-cached it
+            self._dm_gate.pop(room_id, None)
+        with self._locks_guard:
+            self._locks.pop(room_id, None)
+        return str(target)
 
     def join_room(self, room_id: str, display_name: str, class_id: str,
                   appearance: "dict | None" = None) -> dict:
@@ -270,7 +344,9 @@ class GameService:
     def set_level_choice(self, room_id: str, player_id: str, stat: str) -> None:
         if stat not in STATS:
             raise ServiceError(f"unknown stat: {stat}")
-        self._level_choices.setdefault(room_id, {})[player_id] = stat
+        with self._lock(room_id):
+            self._room(room_id)          # a deleted room must not collect choices
+            self._level_choices.setdefault(room_id, {})[player_id] = stat
 
     # --- party chat ---------------------------------------------------------
 
