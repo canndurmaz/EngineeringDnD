@@ -30,6 +30,14 @@ def seat_two(svc, start=True):
     return room_id, a, b
 
 
+def sturdy(svc, room_id, *pids):
+    """The hazard hits back at every round end, and the room seed is random.
+    Tests that cross a round keep everyone standing so a lucky hit cannot
+    burn someone out and reorder the turn."""
+    for pid in pids:
+        svc._set_character(room_id, pid, stamina=500, max_stamina=500)
+
+
 def kinds(result):
     return [e["kind"] for e in result["events"]]
 
@@ -109,6 +117,7 @@ def test_bench_test_reveals_the_weakness_and_passes_the_turn(svc):
 
 def test_bench_test_with_the_weakness_known_buffs_the_actor(svc):
     room_id, ada, ben = seat_two(svc)
+    sturdy(svc, room_id, ada, ben)
     svc.office_move(room_id, ada, "lab")
     svc.office_act(room_id, ada, "bench_test")
     svc.end_turn(room_id, ben)                       # round ends
@@ -229,7 +238,7 @@ def test_coffee_restores_stamina(svc):
 
 def test_coffee_is_limited_per_phase_and_resets_on_phase_advance(svc):
     room_id, ada, ben = seat_two(svc)
-    svc._set_character(room_id, ada, stamina=1)
+    sturdy(svc, room_id, ada, ben)                   # coffee is allowed at full
     svc.office_move(room_id, ada, "break_room")
     for _ in range(COFFEE_LIMIT):
         _coffee_turn(svc, room_id, ada, ben)
